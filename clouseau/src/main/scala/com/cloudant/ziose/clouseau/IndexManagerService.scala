@@ -16,7 +16,7 @@ import java.io.File
 import java.io.IOException
 import java.util.HashMap
 import java.util.LinkedHashMap
-import java.util.{ Map => JMap }
+import java.util.{Map => JMap}
 import scala.collection.mutable.Map
 import _root_.com.cloudant.ziose.scalang
 
@@ -28,14 +28,17 @@ import com.cloudant.ziose.core.ProcessContext
 import com.cloudant.ziose.core.Codec
 import zio.ZIO
 
-class IndexManagerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adapter[_, _]) extends Service(ctx) with Instrumented {
+class IndexManagerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adapter[_, _])
+    extends Service(ctx)
+    with Instrumented {
 
   class LRU(initialCapacity: Int = 100, loadFactor: Float = 0.75f) {
 
-    class InnerLRU(initialCapacity: Int, loadFactor: Float) extends LinkedHashMap[String, Pid](initialCapacity, loadFactor, true)
+    class InnerLRU(initialCapacity: Int, loadFactor: Float)
+        extends LinkedHashMap[String, Pid](initialCapacity, loadFactor, true)
 
-    val capacity = ctx.args.config.getInt("clouseau.max_indexes_open", 100)
-    val lruMisses = metrics.counter("lru.misses")
+    val capacity     = ctx.args.config.getInt("clouseau.max_indexes_open", 100)
+    val lruMisses    = metrics.counter("lru.misses")
     val lruEvictions = metrics.counter("lru.evictions")
 
     val pathToPid: JMap[String, Pid] = new InnerLRU(initialCapacity, loadFactor)
@@ -72,18 +75,17 @@ class IndexManagerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapt
     }
 
     def close() = {
-      pidToPath.asScala foreach {
-        kv => kv._1 ! ('close, 'closing)
+      pidToPath.asScala foreach { kv =>
+        kv._1 ! ('close, 'closing)
       }
     }
 
     def closeByPath(path: String) = {
-      pidToPath.asScala foreach {
-        kv =>
-          if (kv._2.startsWith(path)) {
-            logger.info("closing lru for " + path)
-            kv._1 ! ('close, 'closing)
-          }
+      pidToPath.asScala foreach { kv =>
+        if (kv._2.startsWith(path)) {
+          logger.info("closing lru for " + path)
+          kv._1 ! ('close, 'closing)
+        }
       }
     }
 
@@ -101,15 +103,15 @@ class IndexManagerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapt
 
   }
 
-  val logger = LoggerFactory.getLogger("clouseau.main")
+  val logger  = LoggerFactory.getLogger("clouseau.main")
   val rootDir = new File(ctx.args.config.getString("clouseau.dir", "target/indexes"))
-  val openTimer = metrics.timer("opens")
-  val lru = new LRU()
-  val waiters = Map[String, List[(Pid, Any)]]()
+//  val openTimer = metrics.timer("opens")
+  val lru               = new LRU()
+  val waiters           = Map[String, List[(Pid, Any)]]()
   val countLocksEnabled = ctx.args.config.getBoolean("clouseau.count_locks", false)
   if (countLocksEnabled) {
     val lockClass = Class.forName("org.apache.lucene.store.NativeFSLock")
-    val field = lockClass.getDeclaredField("LOCK_HELD")
+    val field     = lockClass.getDeclaredField("LOCK_HELD")
     field.setAccessible(true)
     val LOCK_HELD = field.get(null).asInstanceOf[HashSet[String]]
     metrics.gauge("NativeFSLock.count")(getNativeFSLockHeldSize(LOCK_HELD.asScala))
@@ -135,14 +137,14 @@ class IndexManagerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapt
             case None =>
               val manager = self
               node.spawn(_ => {
-                openTimer.time {
-                  IndexService.start(node, ctx.args.config, path, options) match {
-                    case ('ok, pid: Pid) =>
-                      manager ! ('open_ok, path, peer, pid)
-                    case error =>
-                      manager ! ('open_error, path, error)
-                  }
+//                openTimer.time {
+                IndexService.start(node, ctx.args.config, path, options) match {
+                  case ('ok, pid: Pid) =>
+                    manager ! ('open_ok, path, peer, pid)
+                  case error =>
+                    manager ! ('open_error, path, error)
                 }
+//                }
               })
               waiters.put(path, List(tag))
             case Some(list) =>
@@ -205,10 +207,9 @@ class IndexManagerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapt
 
   private def getDiskSize(path: String) = {
     val indexDir = new File(rootDir, path)
-    val files = indexDir.list()
+    val files    = indexDir.list()
     if (files != null) {
-      val size = files.foldLeft(0L)((acc, fileName) =>
-        acc + (new File(indexDir, fileName)).length())
+      val size = files.foldLeft(0L)((acc, fileName) => acc + (new File(indexDir, fileName)).length())
       ('ok, List(('disk_size, size)))
     } else {
       ('ok, List(('disk_size, 0)))

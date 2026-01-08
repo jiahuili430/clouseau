@@ -6,7 +6,11 @@ import core.MessageEnvelope
 import com.cloudant.ziose.macros.CheckEnv
 import zio._
 
-class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(implicit
+class SNode(
+  val metricsRegistry: ScalangMeterRegistry,
+  val metricsPrometheusRegistry: ScalangPrometheusMeterRegistry,
+  val logLevel: LogLevel
+)(implicit
   val runtime: Runtime[core.EngineWorker & core.Node]
 ) {
   type RegName  = Symbol
@@ -120,6 +124,7 @@ class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(i
   def toStringMacro: List[String] = List(
     s"${getClass.getSimpleName}",
     s"metricsRegistry=$metricsRegistry",
+    s"metricsPrometheusRegistry=$metricsPrometheusRegistry",
     s"runtime=$runtime"
   )
 }

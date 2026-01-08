@@ -403,8 +403,9 @@ class DestSend(to: (Symbol, Symbol), from: Pid, proc: Process) {
 }
 
 class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_, _]) extends Process()(adapter) {
-  def metricsRegistry      = adapter.node.metricsRegistry
-  val metrics              = MetricsGroup(getClass, metricsRegistry)
+  def metricsRegistry = adapter.node.metricsPrometheusRegistry
+//  val metrics              = MetricsGroup(getClass, metricsRegistry)
+  val metrics              = MetricsPrometheusGroup(getClass, metricsRegistry)
   val PING_TIMEOUT_IN_MSEC = 3000
 
   /**
@@ -437,8 +438,8 @@ class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_,
         msg.payload match {
           case EAtom("ping") =>
             onHandlePingMessage(msg)
-          case EAtom("metrics") =>
-            onHandleMetricsMessage(msg)
+//          case EAtom("metrics") =>
+//            onHandleMetricsMessage(msg)
           case _ =>
             onHandleCallMessage(msg)
         }
@@ -513,11 +514,11 @@ class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_,
     Service.replyZIO(callerTag, Symbol("pong"))(this).as(ActorResult.Continue())
   }
 
-  def onHandleMetricsMessage(msg: MessageEnvelope.Call) = {
-    val callerTag: (Pid, Any) = extractCallerTag(msg)
-    val replyTerm             = (Symbol("ok"), metrics.dumpAsSymbolValuePairs())
-    Service.replyZIO(callerTag, replyTerm)(this).as(ActorResult.Continue())
-  }
+//  def onHandleMetricsMessage(msg: MessageEnvelope.Call) = {
+//    val callerTag: (Pid, Any) = extractCallerTag(msg)
+//    val replyTerm             = (Symbol("ok"), metrics.dumpAsSymbolValuePairs())
+//    Service.replyZIO(callerTag, replyTerm)(this).as(ActorResult.Continue())
+//  }
 
   def onHandleCallMessage(msg: MessageEnvelope.Call)(implicit trace: Trace) = {
     val callerTag: (Pid, Any) = extractCallerTag(msg)

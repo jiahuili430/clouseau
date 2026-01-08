@@ -21,19 +21,14 @@ import org.apache.lucene.index._
 import org.apache.lucene.store._
 import org.apache.lucene.search._
 import grouping.SearchGroup
-import grouping.term.{ TermSecondPassGroupingCollector, TermFirstPassGroupingCollector }
+import grouping.term.{TermSecondPassGroupingCollector, TermFirstPassGroupingCollector}
 import org.apache.lucene.util.BytesRef
 import org.apache.lucene.util.Version
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.BooleanClause.Occur
 import org.apache.lucene.queryparser.classic.QueryParser
 import org.apache.lucene.queryparser.classic.ParseException
-import org.apache.lucene.search.highlight.{
-  Highlighter,
-  QueryScorer,
-  SimpleHTMLFormatter,
-  SimpleFragmenter
-}
+import org.apache.lucene.search.highlight.{Highlighter, QueryScorer, SimpleHTMLFormatter, SimpleFragmenter}
 import org.apache.lucene.analysis.Analyzer
 import _root_.com.cloudant.ziose.scalang
 import scalang._
@@ -41,18 +36,11 @@ import collection.JavaConverters._
 
 import Utils._
 
-import org.apache.lucene.facet.sortedset.{
-  SortedSetDocValuesReaderState,
-  SortedSetDocValuesAccumulator
-}
-import org.apache.lucene.facet.range.{
-  DoubleRange,
-  RangeAccumulator,
-  RangeFacetRequest
-}
+import org.apache.lucene.facet.sortedset.{SortedSetDocValuesReaderState, SortedSetDocValuesAccumulator}
+import org.apache.lucene.facet.range.{DoubleRange, RangeAccumulator, RangeFacetRequest}
 import org.apache.lucene.facet.search._
 import org.apache.lucene.facet.taxonomy.CategoryPath
-import org.apache.lucene.facet.params.{ FacetIndexingParams, FacetSearchParams }
+import org.apache.lucene.facet.params.{FacetIndexingParams, FacetSearchParams}
 import scala.Some
 import _root_.com.spatial4j.core.context.SpatialContext
 import _root_.com.spatial4j.core.distance.DistanceUtils
@@ -68,7 +56,12 @@ import java.time.Instant
 import zio.Duration
 
 case class IndexServiceArgs(config: Configuration, name: String, queryParser: QueryParser, writer: IndexWriter)
-case class HighlightParameters(highlighter: Highlighter, highlightFields: List[String], highlightNumber: Int, analyzers: List[Analyzer])
+case class HighlightParameters(
+  highlighter: Highlighter,
+  highlightFields: List[String],
+  highlightNumber: Int,
+  analyzers: List[Analyzer]
+)
 
 // These must match the records in dreyfus.
 case class TopDocs(updateSeq: Long, totalHits: Long, hits: List[Hit])
@@ -76,43 +69,46 @@ case class Hit(order: List[Any], fields: List[Any])
 
 case object InvalidReader extends Exception
 
-class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adapter[_, _]) extends Service(ctx) with Instrumented {
+class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adapter[_, _])
+    extends Service(ctx)
+    with Instrumented {
   import IndexService._
 
   var lazyReader: Option[DirectoryReader] = None
-  var updateSeq = getCommittedSeq
-  var pendingSeq = updateSeq
-  var purgeSeq = getCommittedPurgeSeq
-  var pendingPurgeSeq = purgeSeq
-  var committing = false
-  var forceRefresh = false
-  var idle = true
-  var concurrentRequests = new AtomicInteger(0)
+  var updateSeq                           = getCommittedSeq
+  var pendingSeq                          = updateSeq
+  var purgeSeq                            = getCommittedPurgeSeq
+  var pendingPurgeSeq                     = purgeSeq
+  var committing                          = false
+  var forceRefresh                        = false
+  var idle                                = true
+  var concurrentRequests                  = new AtomicInteger(0)
 
   def reader = lazyReader.getOrElse(throw InvalidReader)
-  def setReader(reader: DirectoryReader) =
+  def setReader(reader: DirectoryReader) = {
     lazyReader = Some(reader)
+  }
 
-  val searchTimer = metrics.timer("searches")
-  val updateTimer = metrics.timer("updates")
-  val deleteTimer = metrics.timer("deletes")
-  val commitTimer = metrics.timer("commits")
+//  val searchTimer = metrics.timer("searches")
+//  val updateTimer = metrics.timer("updates")
+//  val deleteTimer = metrics.timer("deletes")
+//  val commitTimer = metrics.timer("commits")
 
   val parSearchTimeOutCount = metrics.counter("partition_search.timeout.count")
 
   // Start committer heartbeat
-  val commitInterval = ctx.args.config.getInt("commit_interval_secs", 30)
-  val timeAllowed = ctx.args.config.getLong("clouseau.search_allowed_timeout_msecs", 5000)
+  val commitInterval     = ctx.args.config.getInt("commit_interval_secs", 30)
+  val timeAllowed        = ctx.args.config.getLong("clouseau.search_allowed_timeout_msecs", 5000)
   val countFieldsEnabled = ctx.args.config.getBoolean("clouseau.count_fields", false)
 
   val concurrentSearchEnabled = ctx.args.config.getBoolean("clouseau.concurrent_search_enabled", false)
-  val concurrentSearchLimit = ctx.args.config.getInt("clouseau.concurrent_search_limit", 1000)
+  val concurrentSearchLimit   = ctx.args.config.getInt("clouseau.concurrent_search_limit", 1000)
 
   // Check if the index is idle and optionally close it if there is no activity between
-  //Two consecutive idle status checks.
+  // Two consecutive idle status checks.
   val closeIfIdleEnabled = ctx.args.config.getBoolean("clouseau.close_if_idle", false)
-  val idleTimeout = ctx.args.config.getInt("clouseau.idle_check_interval_secs", 300)
-  val lruUpdateInterval = ctx.args.config.getInt("clouseau.lru_update_interval_msecs", 1000)
+  val idleTimeout        = ctx.args.config.getInt("clouseau.idle_check_interval_secs", 300)
+  val lruUpdateInterval  = ctx.args.config.getInt("clouseau.lru_update_interval_msecs", 1000)
   // Set initial default to be in the past so we don't miss first LRU update
   var lastLRUUpdate = Instant.now().minus(Duration.fromMillis(lruUpdateInterval * 2))
 
@@ -136,7 +132,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
 
   override def handleCall(tag: (Pid, Any), msg: Any): Any = {
     idle = false
-    val now = Instant.now
+    val now                    = Instant.now
     val timeSinceLRUUpdateInMs = ChronoUnit.MILLIS.between(lastLRUUpdate, now)
     if (timeSinceLRUUpdateInMs > lruUpdateInterval) {
       lastLRUUpdate = now
@@ -151,12 +147,12 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       if (concurrentSearchEnabled) {
         if (concurrentRequests.getAndIncrement() <= concurrentSearchLimit) {
           node.spawn(_ => {
-                try {
-                  val result = search(request)
-                  Service.reply(tag, result)
-                } finally {
-                  concurrentRequests.decrementAndGet()
-                }
+            try {
+              val result = search(request)
+              Service.reply(tag, result)
+            } finally {
+              concurrentRequests.decrementAndGet()
+            }
           })
           'noreply
         } else {
@@ -167,8 +163,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       } else {
         search(request)
       }
-    case Group1Msg(query: String, field: String, refresh: Boolean, groupSort: Any, groupOffset: Int,
-      groupLimit: Int) =>
+    case Group1Msg(query: String, field: String, refresh: Boolean, groupSort: Any, groupOffset: Int, groupLimit: Int) =>
       group1(query, field, refresh, groupSort, groupOffset, groupLimit)
     case request: Group2Msg =>
       group2(request)
@@ -178,15 +173,15 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       ('ok, purgeSeq)
     case UpdateDocMsg(id: String, doc: Document) =>
       logger.debug(prefix_name("Updating %s".format(id)))
-      updateTimer.time {
-        ctx.args.writer.updateDocument(new Term("_id", id), doc)
-      }
+//      updateTimer.time {
+      ctx.args.writer.updateDocument(new Term("_id", id), doc)
+//      }
       'ok
     case DeleteDocMsg(id: String) =>
       logger.debug(prefix_name("Deleting %s".format(id)))
-      deleteTimer.time {
-        ctx.args.writer.deleteDocuments(new Term("_id", id))
-      }
+//      deleteTimer.time {
+      ctx.args.writer.deleteDocuments(new Term("_id", id))
+//      }
       'ok
     case CommitMsg(commitSeq: Long) => // deprecated
       pendingSeq = commitSeq
@@ -253,10 +248,9 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
 
   def countFields() = {
     if (countFieldsEnabled) {
-      val leaves = reader.leaves().iterator()
-      val warningThreshold = ctx.args.config.
-        getInt("clouseau.field_count_warn_threshold", 5000)
-      val fields = new HashSet[String]()
+      val leaves           = reader.leaves().iterator()
+      val warningThreshold = ctx.args.config.getInt("clouseau.field_count_warn_threshold", 5000)
+      val fields           = new HashSet[String]()
       while (leaves.hasNext() && fields.size <= warningThreshold) {
         val fieldInfoIter = leaves.next.reader().getFieldInfos().iterator()
         while (fieldInfoIter.hasNext() && fields.size <= warningThreshold) {
@@ -264,9 +258,12 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
         }
       }
       if (fields.size > warningThreshold) {
-        logger.warn(prefix_name(
-          "Index has more than %d fields, ".format(warningThreshold) +
-            "too many fields will lead to heap exhaustion"))
+        logger.warn(
+          prefix_name(
+            "Index has more than %d fields, ".format(warningThreshold) +
+              "too many fields will lead to heap exhaustion"
+          )
+        )
       }
     }
     ()
@@ -300,13 +297,15 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       committing = true
       val index = self
       node.spawn(_ => {
-        ctx.args.writer.setCommitData((ctx.args.writer.getCommitData.asScala +
-          ("update_seq" -> newUpdateSeq.toString) +
-          ("purge_seq" -> newPurgeSeq.toString)).asJava)
+        ctx.args.writer.setCommitData(
+          (ctx.args.writer.getCommitData.asScala +
+            ("update_seq" -> newUpdateSeq.toString) +
+            ("purge_seq"  -> newPurgeSeq.toString)).asJava
+        )
         try {
-          commitTimer.time {
-            ctx.args.writer.commit()
-          }
+//          commitTimer.time {
+          ctx.args.writer.commit()
+//          }
           index ! ('committed, newUpdateSeq, newPurgeSeq)
         } catch {
           case e: AlreadyClosedException =>
@@ -322,8 +321,8 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
 
   private def search(request: SearchRequest): Any = {
     val queryString = request.options.getOrElse('query, "*:*").asInstanceOf[String]
-    val refresh = request.options.getOrElse('refresh, true).asInstanceOf[Boolean]
-    val limit = request.options.getOrElse('limit, 25).asInstanceOf[Int]
+    val refresh     = request.options.getOrElse('refresh, true).asInstanceOf[Boolean]
+    val limit       = request.options.getOrElse('limit, 25).asInstanceOf[Int]
 
     val partition: Option[String] = getOption[String](request.options, 'partition)
 
@@ -340,16 +339,15 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
         safeSearch {
           val query = getDrilldown(request.options) match {
             case Some(categories: List[_]) => {
-              val drilldownQuery = new DrillDownQuery(
-                FacetIndexingParams.DEFAULT, baseQuery)
+              val drilldownQuery = new DrillDownQuery(FacetIndexingParams.DEFAULT, baseQuery)
               for (category <- categories) {
                 val category1 = category.toArray
-                val len = category1.length
+                val len       = category1.length
                 try {
                   if (len < 3) {
                     drilldownQuery.add(new CategoryPath(category1: _*))
-                  } else { //if there are multiple values OR'd them, delete this else part after updating to Apache Lucene > 4.6
-                    val dim = category1(0)
+                  } else { // if there are multiple values OR'd them, delete this else part after updating to Apache Lucene > 4.6
+                    val dim                                = category1(0)
                     val categoryPaths: Array[CategoryPath] = new Array[CategoryPath](len - 1)
                     for (i <- 1 until len) {
                       categoryPaths(i - 1) = new CategoryPath(Array(dim, category1(i)): _*)
@@ -360,8 +358,10 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
                   case e: IllegalArgumentException =>
                     throw new ParseException(e.getMessage)
                   case e: ArrayStoreException =>
-                    throw new ParseException(category +
-                      " contains a non-string item")
+                    throw new ParseException(
+                      category +
+                        " contains a non-string item"
+                    )
                 }
               }
               drilldownQuery
@@ -370,11 +370,11 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
               throw new ParseException("invalid drilldown query")
             case None => baseQuery
           }
-          val searcher = getSearcher(refresh)
-          val weight = searcher.createNormalizedWeight(query)
+          val searcher          = getSearcher(refresh)
+          val weight            = searcher.createNormalizedWeight(query)
           val docsScoredInOrder = !weight.scoresDocsOutOfOrder
 
-          val sort = parseSort(request.options.getOrElse('sort, 'relevance)).rewrite(searcher)
+          val sort  = parseSort(request.options.getOrElse('sort, 'relevance)).rewrite(searcher)
           val after = toScoreDoc(sort, getOption(request.options, 'after))
 
           val hitsCollector = (limit, after, sort) match {
@@ -385,11 +385,9 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
             case (_, Some(scoreDoc), Sort.RELEVANCE) =>
               TopScoreDocCollector.create(limit, scoreDoc, docsScoredInOrder)
             case (_, None, sort1: Sort) =>
-              TopFieldCollector.create(sort1, limit, true, false, false,
-                docsScoredInOrder)
+              TopFieldCollector.create(sort1, limit, true, false, false, docsScoredInOrder)
             case (_, Some(fieldDoc: FieldDoc), sort1: Sort) =>
-              TopFieldCollector.create(sort1, limit, fieldDoc, true, false,
-                false, docsScoredInOrder)
+              TopFieldCollector.create(sort1, limit, fieldDoc, true, false, false, docsScoredInOrder)
             case (_, Some(_), _) =>
               throw new ParseException("invalid 'after' query")
           }
@@ -400,24 +398,32 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
             case None =>
               null
             case Some(rangeList: List[_]) =>
-              val rangeFacetRequests: List[FacetRequest] = for ((name: RangesName, ranges: List[_]) <- rangeList) yield {
-                new RangeFacetRequest(name, ranges.map({
-                  case (label: RangesLabel, rangeQuery: RangesQuery) =>
-                    ctx.args.queryParser.parse(rangeQuery) match {
-                      case q: NumericRangeQuery[_] =>
-                        new DoubleRange(
-                          label,
-                          ClouseauTypeFactory.toDouble(q.getMin).get,
-                          q.includesMin,
-                          ClouseauTypeFactory.toDouble(q.getMax).get,
-                          q.includesMax)
+              val rangeFacetRequests: List[FacetRequest] = {
+                for ((name: RangesName, ranges: List[_]) <- rangeList) yield {
+                  new RangeFacetRequest(
+                    name,
+                    ranges.map {
+                      case (label: RangesLabel, rangeQuery: RangesQuery) =>
+                        ctx.args.queryParser.parse(rangeQuery) match {
+                          case q: NumericRangeQuery[_] =>
+                            new DoubleRange(
+                              label,
+                              ClouseauTypeFactory.toDouble(q.getMin).get,
+                              q.includesMin,
+                              ClouseauTypeFactory.toDouble(q.getMax).get,
+                              q.includesMax
+                            )
+                          case _ =>
+                            throw new ParseException(
+                              rangeQuery +
+                                " was not a well-formed range specification"
+                            )
+                        }
                       case _ =>
-                        throw new ParseException(rangeQuery +
-                          " was not a well-formed range specification")
-                    }
-                  case _ =>
-                    throw new ParseException("invalid ranges query")
-                }).asJava)
+                        throw new ParseException("invalid ranges query")
+                    }.asJava
+                  )
+                }
               }
               val acc = new RangeAccumulator(rangeFacetRequests.asJava)
               FacetsCollector.create(acc)
@@ -425,29 +431,32 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
               throw new ParseException(other + " is not a valid ranges query")
           }
 
-          val collector = MultiCollector.wrap(
-            hitsCollector, countsCollector, rangesCollector)
+          val collector = MultiCollector.wrap(hitsCollector, countsCollector, rangesCollector)
 
-          searchTimer.time {
-            partition match {
-              case None =>
-                searcher.search(query, collector)
-              case Some(p) =>
-                val tlcollector = new TimeLimitingCollector(collector,
-                  TimeLimitingCollector.getGlobalCounter, timeAllowed)
-                try {
-                  searcher.search(query, tlcollector)
-                } catch {
-                  case x: TimeLimitingCollector.TimeExceededException => {
-                    parSearchTimeOutCount += 1
-                    throw new ParseException("Query exceeded allowed time: " + timeAllowed + "ms.")
-                  }
+//          searchTimer.time {
+          partition match {
+            case None =>
+              searcher.search(query, collector)
+            case Some(p) =>
+              val tlcollector = {
+                new TimeLimitingCollector(collector, TimeLimitingCollector.getGlobalCounter, timeAllowed)
+              }
+              try {
+                searcher.search(query, tlcollector)
+              } catch {
+                case x: TimeLimitingCollector.TimeExceededException => {
+                  parSearchTimeOutCount += 1
+                  throw new ParseException("Query exceeded allowed time: " + timeAllowed + "ms.")
                 }
-            }
+              }
           }
-          logger.debug(prefix_name(
-            "search for '%s' limit=%d, refresh=%s had %d hits"
-              .format(query, limit, refresh, getTotalHits(hitsCollector))))
+//          }
+          logger.debug(
+            prefix_name(
+              "search for '%s' limit=%d, refresh=%s had %d hits"
+                .format(query, limit, refresh, getTotalHits(hitsCollector))
+            )
+          )
           val HPs = getHighlightParameters(request.options, query)
 
           val hits = getHits(hitsCollector, searcher, includeFields, HPs)
@@ -455,12 +464,15 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
           if (legacy) {
             ('ok, TopDocs(updateSeq, getTotalHits(hitsCollector), hits))
           } else {
-            ('ok, List(
-              ('update_seq, updateSeq),
-              ('total_hits, getTotalHits(hitsCollector)),
-              ('hits, hits)
-            ) ++ convertFacets('counts, countsCollector)
-              ++ convertFacets('ranges, rangesCollector))
+            (
+              'ok,
+              List(
+                ('update_seq, updateSeq),
+                ('total_hits, getTotalHits(hitsCollector)),
+                ('hits, hits)
+              ) ++ convertFacets('counts, countsCollector)
+                ++ convertFacets('ranges, rangesCollector)
+            )
           }
         }
       case error =>
@@ -475,38 +487,48 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       c.getTotalHits
   }
 
-  private def getHits(collector: Collector, searcher: IndexSearcher,
-                      includeFields: Option[Set[String]], HPs: Option[HighlightParameters] = None) =
+  private def getHits(
+    collector: Collector,
+    searcher: IndexSearcher,
+    includeFields: Option[Set[String]],
+    HPs: Option[HighlightParameters] = None
+  ) = {
     collector match {
       case c: TopDocsCollector[_] =>
         c.topDocs.scoreDocs.map({ docToHit(searcher, _, includeFields, HPs) }).toList
       case c: TotalHitCountCollector =>
         Nil
     }
+  }
 
   private def createCountsCollector(counts: Option[List[String]]): FacetsCollector = {
     counts match {
       case None =>
         null
       case Some(counts: List[_]) =>
-        val state = try {
-          new SortedSetDocValuesReaderState(reader)
-        } catch {
-          case e: IllegalArgumentException =>
-            if (e.getMessage contains "was not indexed with SortedSetDocValues")
-              return null
-            else
-              throw e
+        val state = {
+          try {
+            new SortedSetDocValuesReaderState(reader)
+          } catch {
+            case e: IllegalArgumentException =>
+              if (e.getMessage contains "was not indexed with SortedSetDocValues") {
+                return null
+              } else {
+                throw e
+              }
+          }
         }
         val countFacetRequests: List[FacetRequest] = for (count <- counts) yield {
           new CountFacetRequest(new CategoryPath(count), Int.MaxValue)
         }
         val facetSearchParams = new FacetSearchParams(countFacetRequests.asJava)
-        val acc = try {
-          new SortedSetDocValuesAccumulator(state, facetSearchParams)
-        } catch {
-          case e: IllegalArgumentException =>
-            throw new ParseException(e.getMessage)
+        val acc = {
+          try {
+            new SortedSetDocValuesAccumulator(state, facetSearchParams)
+          } catch {
+            case e: IllegalArgumentException =>
+              throw new ParseException(e.getMessage)
+          }
         }
         FacetsCollector.create(acc)
       case Some(other) =>
@@ -514,89 +536,107 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
     }
   }
 
-  private def group1(queryString: String, field: String, refresh: Boolean, groupSort: Any,
-                     groupOffset: Int, groupLimit: Int): Any = parseQuery(queryString, None) match {
+  private def group1(
+    queryString: String,
+    field: String,
+    refresh: Boolean,
+    groupSort: Any,
+    groupOffset: Int,
+    groupLimit: Int
+  ): Any = parseQuery(queryString, None) match {
     case query: Query =>
       val searcher = getSearcher(refresh)
       safeSearch {
         val fieldName = validateGroupField(field)
-        val collector = new TermFirstPassGroupingCollector(fieldName,
-          parseSort(groupSort).rewrite(searcher), groupLimit)
-        searchTimer.time {
+        val collector = {
+          new TermFirstPassGroupingCollector(fieldName, parseSort(groupSort).rewrite(searcher), groupLimit)
+        }
+//        searchTimer.time {
           searcher.search(query, collector)
           collector.getTopGroups(groupOffset, true) match {
             case null =>
               ('ok, List())
             case topGroups =>
-              ('ok, topGroups.asScala map {
-                g => (g.groupValue, convertOrder(g.sortValues))
-              })
+              (
+                'ok,
+                topGroups.asScala map { g =>
+                  (g.groupValue, convertOrder(g.sortValues))
+                }
+              )
           }
-        }
+//        }
       }
     case error =>
       error
   }
 
   private def group2(request: Group2Msg): Any = {
-    val queryString = request.options.getOrElse('query, "*:*").asInstanceOf[String]
-    val field = request.options('field).asInstanceOf[String]
-    val refresh = request.options.getOrElse('refresh, true).asInstanceOf[Boolean]
-    val groups = getGroups(request.options).getOrElse(List())
-    val groupSort = request.options('group_sort)
-    val docSort = request.options('sort)
-    val docLimit = request.options.getOrElse('limit, 25).asInstanceOf[Int]
+    val queryString                        = request.options.getOrElse('query, "*:*").asInstanceOf[String]
+    val field                              = request.options('field).asInstanceOf[String]
+    val refresh                            = request.options.getOrElse('refresh, true).asInstanceOf[Boolean]
+    val groups                             = getGroups(request.options).getOrElse(List())
+    val groupSort                          = request.options('group_sort)
+    val docSort                            = request.options('sort)
+    val docLimit                           = request.options.getOrElse('limit, 25).asInstanceOf[Int]
     val includeFields: Option[Set[String]] = getIncludeFields(request.options)
     parseQuery(queryString, None) match {
       case query: Query =>
         val searcher = getSearcher(refresh)
-        val groups1 = groups.map {
-          g => makeSearchGroup(g)
+        val groups1 = groups.map { g =>
+          makeSearchGroup(g)
         }
         safeSearch {
           val fieldName = validateGroupField(field)
-          val collector = new TermSecondPassGroupingCollector(fieldName, groups1.asJava,
+          val collector = new TermSecondPassGroupingCollector(
+            fieldName,
+            groups1.asJava,
             parseSort(groupSort).rewrite(searcher),
-            parseSort(docSort).rewrite(searcher), docLimit, true, false, true)
-          searchTimer.time {
+            parseSort(docSort).rewrite(searcher),
+            docLimit,
+            true,
+            false,
+            true
+          )
+//          searchTimer.time {
             searcher.search(query, collector)
             collector.getTopGroups(0) match {
               case null =>
                 ('ok, 0, 0, List())
               case topGroups => {
                 val HPs = getHighlightParameters(request.options, query)
-                ('ok, topGroups.totalHitCount, topGroups.totalGroupedHitCount,
-                  topGroups.groups.map {
-                    g =>
-                      (
-                        g.groupValue,
-                        g.totalHits,
-                        g.scoreDocs.map({
+                (
+                  'ok,
+                  topGroups.totalHitCount,
+                  topGroups.totalGroupedHitCount,
+                  topGroups.groups.map { g =>
+                    (
+                      g.groupValue,
+                      g.totalHits,
+                      g.scoreDocs
+                        .map({
                           docToHit(searcher, _, includeFields, HPs)
-                        }).toList
-                      )
-                  }.toList)
+                        })
+                        .toList
+                    )
+                  }.toList
+                )
               }
             }
-          }
+//          }
         }
       case error =>
         error
     }
   }
 
-  private def getHighlightParameters(options: Map[Symbol, Any], query: Query): Option[HighlightParameters] =
+  private def getHighlightParameters(options: Map[Symbol, Any], query: Query): Option[HighlightParameters] = {
     getListOfStringsOption(options, 'highlight_fields).map(highlightFields => {
-      val preTag = options.getOrElse('highlight_pre_tag,
-        "<em>").asInstanceOf[String]
-      val postTag = options.getOrElse('highlight_post_tag,
-        "</em>").asInstanceOf[String]
-      val highlightNumber = options.getOrElse('highlight_number,
-        1).asInstanceOf[Int] //number of fragments
-      val highlightSize = options.getOrElse('highlight_size, 0).
-        asInstanceOf[Int]
-      val htmlFormatter = new SimpleHTMLFormatter(preTag, postTag)
-      val highlighter = new Highlighter(htmlFormatter, new QueryScorer(query))
+      val preTag          = options.getOrElse('highlight_pre_tag, "<em>").asInstanceOf[String]
+      val postTag         = options.getOrElse('highlight_post_tag, "</em>").asInstanceOf[String]
+      val highlightNumber = options.getOrElse('highlight_number, 1).asInstanceOf[Int] // number of fragments
+      val highlightSize   = options.getOrElse('highlight_size, 0).asInstanceOf[Int]
+      val htmlFormatter   = new SimpleHTMLFormatter(preTag, postTag)
+      val highlighter     = new Highlighter(htmlFormatter, new QueryScorer(query))
       if (highlightSize > 0) {
         highlighter.setTextFragmenter(new SimpleFragmenter(highlightSize))
       }
@@ -610,6 +650,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       }
       HighlightParameters(highlighter, highlightFields, highlightNumber, analyzers)
     })
+  }
 
   private def validateGroupField(field: String) = {
     IndexService.SORT_FIELD_RE.findFirstMatchIn(field) match {
@@ -622,20 +663,22 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       case Some(other) =>
         throw new ParseException("Unrecognized group_field value: " + other)
       case None =>
-        throw new ParseException("Unrecognized group_field parameter: "
-          + field)
+        throw new ParseException(
+          "Unrecognized group_field parameter: "
+            + field
+        )
     }
   }
 
   private def makeSearchGroup(group: Any): SearchGroup[BytesRef] = group match {
     case (None, order: List[AnyRef @unchecked]) =>
       val result: SearchGroup[BytesRef] = new SearchGroup
-      result.sortValues = order.collect({ case ref: AnyRef => ref }).toArray
+      result.sortValues = order.collect { case ref: AnyRef => ref }.toArray
       result
     case (Some(name: String), order: List[AnyRef @unchecked]) =>
       val result: SearchGroup[BytesRef] = new SearchGroup
       result.groupValue = name
-      result.sortValues = order.collect({ case ref: AnyRef => ref }).toArray
+      result.sortValues = order.collect { case ref: AnyRef => ref }.toArray
       result
   }
 
@@ -730,8 +773,12 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       new Sort(fields.map(toSortField).toArray: _*)
   }
 
-  private def docToHit(searcher: IndexSearcher, scoreDoc: ScoreDoc,
-                       includeFields: Option[Set[String]] = null, HPs: Option[HighlightParameters] = None): Hit = {
+  private def docToHit(
+    searcher: IndexSearcher,
+    scoreDoc: ScoreDoc,
+    includeFields: Option[Set[String]] = null,
+    HPs: Option[HighlightParameters] = None
+  ): Hit = {
     val doc = includeFields match {
       case None =>
         searcher.doc(scoreDoc.doc)
@@ -764,12 +811,16 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
 
     HPs match {
       case Some(parameters: HighlightParameters) => {
-        val highlights = (parameters.highlightFields zip parameters.analyzers).map {
-          case (field, analyzer) =>
-            (field, doc.getValues(field).flatMap { v =>
-              parameters.highlighter.getBestFragments(analyzer, field,
-                v, parameters.highlightNumber).toList
-            }.toList)
+        val highlights = (parameters.highlightFields zip parameters.analyzers).map { case (field, analyzer) =>
+          (
+            field,
+            doc
+              .getValues(field)
+              .flatMap { v =>
+                parameters.highlighter.getBestFragments(analyzer, field, v, parameters.highlightNumber).toList
+              }
+              .toList
+          )
         }
         fields += "_highlights" -> highlights.toList
       }
@@ -802,13 +853,14 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
         case "km" => DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM
         case null => DistanceUtils.EARTH_EQUATORIAL_RADIUS_KM
       }
-      val ctx = SpatialContext.GEO
-      val point = ctx.makePoint(lon.toDouble, lat.toDouble)
-      val degToKm = DistanceUtils.degrees2Dist(1, radius)
+      val ctx         = SpatialContext.GEO
+      val point       = ctx.makePoint(lon.toDouble, lat.toDouble)
+      val degToKm     = DistanceUtils.degrees2Dist(1, radius)
       val valueSource = new DistanceValueSource(ctx, fieldLon, fieldLat, degToKm, point)
       valueSource.getSortField(fieldOrder == "-")
     case IndexService.SORT_FIELD_RE(fieldOrder, fieldName, fieldType) =>
-      new SortField(fieldName,
+      new SortField(
+        fieldName,
         fieldType match {
           case "string" =>
             SortField.Type.STRING
@@ -818,7 +870,9 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
             SortField.Type.DOUBLE
           case _ =>
             throw new ParseException("Unrecognized type: " + fieldType)
-        }, fieldOrder == "-")
+        },
+        fieldOrder == "-"
+      )
     case _ =>
       throw new ParseException("Unrecognized sort parameter: " + field)
   }
@@ -827,7 +881,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
     case null =>
       Nil
     case _ =>
-      List((name, c.getFacetResults.asScala.map { f => convertFacet(f) }.toList))
+      List((name, c.getFacetResults.asScala.map(f => convertFacet(f)).toList))
   }
 
   private def convertFacet(facet: FacetResult): Any = {
@@ -835,7 +889,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
   }
 
   private def convertFacetNode(node: FacetResultNode): Any = {
-    val children = node.subResults.asScala.map { n => convertFacetNode(n) }.toList
+    val children = node.subResults.asScala.map(n => convertFacetNode(n)).toList
     (node.label.components.toList, node.value, children)
   }
 
@@ -843,40 +897,46 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
     case None =>
       None
     case Some((score: Any, doc: Any)) =>
-      Some(new ScoreDoc(ClouseauTypeFactory.toInteger(doc),
-        ClouseauTypeFactory.toFloat(score)))
+      Some(new ScoreDoc(ClouseauTypeFactory.toInteger(doc), ClouseauTypeFactory.toFloat(score)))
     case Some(list: List[Object @unchecked]) =>
       val doc = list.last
       sort.getSort match {
         case Array(SortField.FIELD_SCORE) =>
-          Some(new ScoreDoc(ClouseauTypeFactory.toInteger(doc),
-            ClouseauTypeFactory.toFloat(list.head)))
+          Some(new ScoreDoc(ClouseauTypeFactory.toInteger(doc), ClouseauTypeFactory.toFloat(list.head)))
         case _ =>
-          val fields = list dropRight 1
+          val fields     = list dropRight 1
           val sortfields = sort.getSort.toList
           if (fields.length != sortfields.length) {
             throw new ParseException("sort order not compatible with given bookmark")
           }
-          Some(new FieldDoc(ClouseauTypeFactory.toInteger(doc),
-            Float.NaN, sortfields.zip(fields).map {
-              case (_, 'null) =>
-                null
-              case (_, str: String) =>
-                Utils.stringToBytesRef(str)
-              case (SortField.FIELD_SCORE, number: java.lang.Double) =>
-                java.lang.Float.valueOf(number.floatValue())
-              case (IndexService.INVERSE_FIELD_SCORE, number: java.lang.Double) =>
-                java.lang.Float.valueOf(number.floatValue())
-              case (SortField.FIELD_DOC, number: java.lang.Double) =>
-                java.lang.Integer.valueOf(number.intValue())
-              case (IndexService.INVERSE_FIELD_DOC, number: java.lang.Double) =>
-                java.lang.Integer.valueOf(number.intValue())
-              case (_, field) =>
-                field
-            }.toArray))
+          Some(
+            new FieldDoc(
+              ClouseauTypeFactory.toInteger(doc),
+              Float.NaN,
+              sortfields
+                .zip(fields)
+                .map {
+                  case (_, 'null) =>
+                    null
+                  case (_, str: String) =>
+                    Utils.stringToBytesRef(str)
+                  case (SortField.FIELD_SCORE, number: java.lang.Double) =>
+                    java.lang.Float.valueOf(number.floatValue())
+                  case (IndexService.INVERSE_FIELD_SCORE, number: java.lang.Double) =>
+                    java.lang.Float.valueOf(number.floatValue())
+                  case (SortField.FIELD_DOC, number: java.lang.Double) =>
+                    java.lang.Integer.valueOf(number.intValue())
+                  case (IndexService.INVERSE_FIELD_DOC, number: java.lang.Double) =>
+                    java.lang.Integer.valueOf(number.intValue())
+                  case (_, field) =>
+                    field
+                }
+                .toArray
+            )
+          )
       }
-      case Some(_) =>
-        throw new ParseException("invalid format for 'after' option")
+    case Some(_) =>
+      throw new ParseException("invalid format for 'after' option")
   }
 
   private def createSnapshot(snapshotDir: String) = {
@@ -905,21 +965,23 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
 }
 
 object IndexService {
-  val logger = LoggerFactory.getLogger("clouseau")
-  val version = Version.LUCENE_46
+  val logger              = LoggerFactory.getLogger("clouseau")
+  val version             = Version.LUCENE_46
   val INVERSE_FIELD_SCORE = new SortField(null, SortField.Type.SCORE, true)
-  val INVERSE_FIELD_DOC = new SortField(null, SortField.Type.DOC, true)
-  val SORT_FIELD_RE = """^([-+])?([\.\w]+)(?:<(\w+)>)?$""".r
-  val FP = """([-+]?[0-9]+(?:\.[0-9]+)?)"""
-  val DISTANCE_RE = "^([-+])?<distance,([\\.\\w]+),([\\.\\w]+),%s,%s,(mi|km)>$".format(FP, FP).r
+  val INVERSE_FIELD_DOC   = new SortField(null, SortField.Type.DOC, true)
+  val SORT_FIELD_RE       = """^([-+])?([\.\w]+)(?:<(\w+)>)?$""".r
+  val FP                  = """([-+]?[0-9]+(?:\.[0-9]+)?)"""
+  val DISTANCE_RE         = "^([-+])?<distance,([\\.\\w]+),([\\.\\w]+),%s,%s,(mi|km)>$".format(FP, FP).r
 
-  def start(node: SNode, config: Configuration, path: String, options: AnalyzerOptions)(implicit adapter: Adapter[_, _]): Any = {
+  def start(node: SNode, config: Configuration, path: String, options: AnalyzerOptions)(implicit
+    adapter: Adapter[_, _]
+  ): Any = {
     val rootDir = new File(config.getString("clouseau.dir", "target/indexes"))
-    val dir = newDirectory(config.clouseau, new File(rootDir, path))
+    val dir     = newDirectory(config.clouseau, new File(rootDir, path))
     try {
       SupportedAnalyzers.createAnalyzer(options) match {
         case Some(analyzer) =>
-          val queryParser = new ClouseauQueryParser(version, "default", analyzer)
+          val queryParser  = new ClouseauQueryParser(version, "default", analyzer)
           val writerConfig = new IndexWriterConfig(version, analyzer)
           writerConfig.setIndexDeletionPolicy(new ExternalSnapshotDeletionPolicy(dir))
           val writer = new IndexWriter(dir, writerConfig)
@@ -929,36 +991,37 @@ object IndexService {
       }
     } catch {
       case e: IllegalArgumentException => ('error, e.getMessage)
-      case e: IOException => ('error, e.getMessage)
+      case e: IOException              => ('error, e.getMessage)
     }
   }
 
   private def newDirectory(config: ClouseauConfiguration, path: File): FSDirectory = {
-    val lockClassName = config.getString("clouseau.lock_class",
-      "org.apache.lucene.store.NativeFSLockFactory")
-    val lockClass = Class.forName(lockClassName)
-    val lockFactory = lockClass.newInstance().asInstanceOf[LockFactory]
+    val lockClassName = config.getString("clouseau.lock_class", "org.apache.lucene.store.NativeFSLockFactory")
+    val lockClass     = Class.forName(lockClassName)
+    val lockFactory   = lockClass.newInstance().asInstanceOf[LockFactory]
 
-    val dirClassName = config.getString("clouseau.dir_class",
-      "org.apache.lucene.store.NIOFSDirectory")
-    val dirClass = Class.forName(dirClassName)
-    val dirCtor = dirClass.getConstructor(classOf[File], classOf[LockFactory])
+    val dirClassName = config.getString("clouseau.dir_class", "org.apache.lucene.store.NIOFSDirectory")
+    val dirClass     = Class.forName(dirClassName)
+    val dirCtor      = dirClass.getConstructor(classOf[File], classOf[LockFactory])
     dirCtor.newInstance(path, lockFactory).asInstanceOf[FSDirectory]
   }
 
   /**
    * Returns the Option[List[List[String]]] of a `drilldown` key from given map of options if it is in correct format.
    *
-   * @param options: Map[Symbol, Any] - map of options to extract `drilldown` key
-   * @return An optional value of a `drilldown` key as `Option[List[List[String]]]`
+   * @param options:
+   *   Map[Symbol, Any] - map of options to extract `drilldown` key
+   * @return
+   *   An optional value of a `drilldown` key as `Option[List[List[String]]]`
    * @throws ParseException
-   *
    */
 
   private[clouseau] def getDrilldown(options: Map[Symbol, Any]): Option[List[List[String]]] = {
     val asListOfStrings: PartialFunction[Any, List[String]] = ensureElementsType(
       { case string: String => string },
-      { case (container, element) => throw new ParseException(container.toString + " contains non-string element " + element.toString) }
+      { case (container, element) =>
+        throw new ParseException(container.toString + " contains non-string element " + element.toString)
+      }
     )
 
     val asListofListsOfStrings: PartialFunction[Any, List[List[String]]] = ensureElementsType(
@@ -981,8 +1044,11 @@ object IndexService {
   /**
    * Returns the Option[value] of a `ranges` key from given map of options if it is in correct format.
    *
-   * @param options: Map[Symbol, Any] - map of options to extract `ranges` key
-   * @return An optional value of a `ranges` key as `Option[List[Product2[RangesName, List[Product2[RangesLabel, RangesQuery]]]]]`
+   * @param options:
+   *   Map[Symbol, Any] - map of options to extract `ranges` key
+   * @return
+   *   An optional value of a `ranges` key as `Option[List[Product2[RangesName, List[Product2[RangesLabel,
+   *   RangesQuery]]]]]`
    * @throws ParseException
    *
    * The function expects the `ranges` value to be in a following format
@@ -1006,13 +1072,14 @@ object IndexService {
    *   (Label, Query)
    * ))]
    * ```
-   *
    */
-  private[clouseau]type RangesLabel = String
-  private[clouseau]type RangesQuery = String
-  private[clouseau]type RangesName = String
+  private[clouseau] type RangesLabel = String
+  private[clouseau] type RangesQuery = String
+  private[clouseau] type RangesName  = String
 
-  private[clouseau] def getRanges(options: Map[Symbol, Any]): Option[List[Product2[RangesName, List[Product2[RangesLabel, RangesQuery]]]]] = {
+  private[clouseau] def getRanges(
+    options: Map[Symbol, Any]
+  ): Option[List[Product2[RangesName, List[Product2[RangesLabel, RangesQuery]]]]] = {
     val asQueries: PartialFunction[Any, List[Product2[RangesLabel, RangesQuery]]] = ensureElementsType(
       { case (label: RangesLabel, query: RangesQuery) => (label, query) },
       { case (_container, _element) => throw new ParseException("invalid ranges query") }
@@ -1020,10 +1087,12 @@ object IndexService {
 
     val asQueriesExtractor = asQueries.Extractor
 
-    val asRange: PartialFunction[Any, List[Product2[RangesName, List[Product2[RangesLabel, RangesQuery]]]]] = ensureElementsType(
-      { case (name: RangesName, asQueriesExtractor(queries)) => (name, queries) },
-      { case (container, _element) => throw new ParseException(container.toString + " is not a valid ranges query") }
-    ).orElse({ case notAList => throw new ParseException("invalid ranges query") })
+    val asRange: PartialFunction[Any, List[Product2[RangesName, List[Product2[RangesLabel, RangesQuery]]]]] = {
+      ensureElementsType(
+        { case (name: RangesName, asQueriesExtractor(queries)) => (name, queries) },
+        { case (container, _element) => throw new ParseException(container.toString + " is not a valid ranges query") }
+      ).orElse { case notAList => throw new ParseException("invalid ranges query") }
+    }
 
     val extractor = asRange.Extractor
 
@@ -1039,18 +1108,22 @@ object IndexService {
   }
 
   /**
-   * Returns the Option[List[String]] of a given option key from a map of options if each element of a list is indeed a String.
+   * Returns the Option[List[String]] of a given option key from a map of options if each element of a list is indeed a
+   * String.
    *
-   * @param options: Map[Symbol, Any] - map of options to extract given key
-   * @return An optional value of a given key as `Option[List[String]]`
+   * @param options:
+   *   Map[Symbol, Any] - map of options to extract given key
+   * @return
+   *   An optional value of a given key as `Option[List[String]]`
    * @throws ParseException
-   *
    */
   private[clouseau] def getListOfStringsOption(options: Map[Symbol, Any], field: Symbol): Option[List[String]] = {
     val asListOfStrings: PartialFunction[Any, List[String]] = ensureElementsType(
       { case string: String => string },
-      { case (container, _element) => throw new ParseException(container.toString + " is not a valid " + field + " query") }
-    ).orElse({ case notAList => throw new ParseException(notAList.toString + " is not a valid " + field + " query") })
+      { case (container, _element) =>
+        throw new ParseException(container.toString + " is not a valid " + field + " query")
+      }
+    ).orElse { case notAList => throw new ParseException(notAList.toString + " is not a valid " + field + " query") }
 
     val extractor = asListOfStrings.Extractor
     getOption[Any](options, field) match {
@@ -1065,15 +1138,17 @@ object IndexService {
   }
 
   /**
-   * Returns the Option[Set[String]] of a `include_fields` key from given map of options if each element of a list
-   * is indeed a String.
+   * Returns the Option[Set[String]] of a `include_fields` key from given map of options if each element of a list is
+   * indeed a String.
    *
-   * It does convert List[String] to Set[String] before returning the result. It also injects an "_id" key into Set[String].
+   * It does convert List[String] to Set[String] before returning the result. It also injects an "_id" key into
+   * Set[String].
    *
-   * @param options: Map[Symbol, Any] - map of options to extract given key
-   * @return An optional value of a `include_fields` key as `Option[Set[String]]`
+   * @param options:
+   *   Map[Symbol, Any] - map of options to extract given key
+   * @return
+   *   An optional value of a `include_fields` key as `Option[Set[String]]`
    * @throws ParseException
-   *
    */
 
   private[clouseau] def getIncludeFields(options: Map[Symbol, Any]): Option[Set[String]] = {
@@ -1081,25 +1156,26 @@ object IndexService {
   }
 
   /**
-   * Returns the Option[List[Product2[Option[GroupName], List[Any]]]] of a `groups` key from given map of options
-   * if each element of a list of tuples with arity 2 and first element is a String.
-   * It does not check whether the second element of the tuple whether it is AnyRef or Any because of auto unboxing in scala.
+   * Returns the Option[List[Product2[Option[GroupName], List[Any]]]] of a `groups` key from given map of options if
+   * each element of a list of tuples with arity 2 and first element is a String. It does not check whether the second
+   * element of the tuple whether it is AnyRef or Any because of auto unboxing in scala.
    *
-   * @param options: Map[Symbol, Any] - map of options to extract given key from
-   * @return An optional value of a `groups` key as `Option[List[Product2[Option[GroupName], List[Any]]]]`
+   * @param options:
+   *   Map[Symbol, Any] - map of options to extract given key from
+   * @return
+   *   An optional value of a `groups` key as `Option[List[Product2[Option[GroupName], List[Any]]]]`
    * @throws ParseException
-   *
    */
 
-  private[clouseau]type GroupName = String
+  private[clouseau] type GroupName = String
   private[clouseau] def getGroups(options: Map[Symbol, Any]): Option[List[Product2[Option[GroupName], List[Any]]]] = {
     val asGroup: PartialFunction[Any, List[Product2[Option[GroupName], List[Any]]]] = ensureElementsType(
       {
         case (name: GroupName, order: List[_]) => (Some(name), order)
-        case ('null, order: List[_]) => (None, order)
+        case ('null, order: List[_])           => (None, order)
       },
       { case (container, _element) => throw new ParseException(container.toString + " is not a valid groups query") }
-    ).orElse({ case notAList => throw new ParseException("invalid groups query") })
+    ).orElse { case notAList => throw new ParseException("invalid groups query") }
 
     val extractor = asGroup.Extractor
 
@@ -1117,9 +1193,9 @@ object IndexService {
   private[clouseau] def getOption[T](options: Map[Symbol, Any], field: Symbol): Option[T] = {
     // Unfortunately CouchDB sends 'nil over the wire
     options.get(field) match {
-      case Some('nil) => None
+      case Some('nil)  => None
       case Some(value) => Some(value.asInstanceOf[T])
-      case None => None
+      case None        => None
     }
   }
 }

@@ -1,26 +1,24 @@
 package com.cloudant.ziose.clouseau
 
-import _root_.com.cloudant.ziose.scalang
 import _root_.com.cloudant.ziose.core
-import core.ProcessContext
-import scalang.Service
-import scalang.Adapter
+import _root_.com.cloudant.ziose.scalang
+import com.cloudant.ziose.macros.CheckEnv
 import core.Actor
-import core.AddressableActor
 import core.ActorBuilder
-import scalang.SNode
+import core.AddressableActor
+import core.ProcessContext
+import scalang.{Adapter, SNode, ScalangMeterRegistry, ScalangPrometheusMeterRegistry, Service}
 import zio.Exit.Failure
 import zio.Exit.Success
-import com.cloudant.ziose.scalang.ScalangMeterRegistry
-import com.cloudant.ziose.macros.CheckEnv
 import zio.{&, LogLevel, Runtime, Tag, Unsafe}
 
 class ClouseauNode(implicit
   override val runtime: Runtime[core.EngineWorker & core.Node],
   worker: core.EngineWorker,
   metricsRegistry: ScalangMeterRegistry,
+  metricsPrometheusRegistry: ScalangPrometheusMeterRegistry,
   logLevel: LogLevel
-) extends SNode(metricsRegistry, logLevel)(runtime) {
+) extends SNode(metricsRegistry, metricsPrometheusRegistry, logLevel)(runtime) {
   /*
    * Each service would need to implement a constructor in the following form
    *
@@ -123,6 +121,7 @@ class ClouseauNode(implicit
     s"${getClass.getSimpleName}",
     s"runtime=$runtime",
     s"worker=$worker",
-    s"metricsRegistry=$metricsRegistry"
+    s"metricsRegistry=$metricsRegistry",
+    s"metricsPrometheusRegistry=$metricsPrometheusRegistry"
   )
 }

@@ -16,7 +16,7 @@ class EchoService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adap
   val logger = LoggerFactory.getLogger("clouseau.EchoService")
   logger.debug("Created")
 
-  val echoTimer: metrics.Timer = metrics.timer("echo.response_time")
+//  val echoTimer: metrics.Timer = metrics.timer("echo.response_time")
 
   override def handleInit(): Unit = {
     adapter.setTag(name.get)
@@ -24,11 +24,11 @@ class EchoService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adap
 
   override def handleInfo(request: Any): Any = {
     request match {
-      case (Symbol("echo"), from: Pid, ts: Long, seq) =>
-        val reply = echoTimer.time(
-          (Symbol("echo_reply"), from, ts, self.pid, now(), seq)
-        )
-        send(from, reply)
+//      case (Symbol("echo"), from: Pid, ts: Long, seq) =>
+//        val reply = echoTimer.time(
+//          (Symbol("echo_reply"), from, ts, self.pid, now(), seq)
+//        )
+//        send(from, reply)
       case (Symbol("block_for_ms"), durationInMs: Int) =>
         logger.warn(s"Blocking the actor loop for ${durationInMs} ms")
         Thread.sleep(durationInMs)
