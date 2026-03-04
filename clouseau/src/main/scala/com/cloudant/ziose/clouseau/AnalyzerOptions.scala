@@ -14,23 +14,21 @@ package com.cloudant.ziose.clouseau
 
 // Use case class to be able to compare the options objects for equality
 case class AnalyzerOptions private (inner: Map[String, Any]) {
-  def toMap = inner
+  def toMap: Map[String, Any] = inner
 }
 
 object AnalyzerOptions {
-  def fromMap(map: Map[_, _]) =
-    new AnalyzerOptions(map.asInstanceOf[Map[String, Any]])
-  def fromAnalyzerName(name: String) =
-    new AnalyzerOptions(Map("name" -> name).asInstanceOf[Map[String, Any]])
-  def fromKVsList(options: List[_]) = {
+  def fromMap(map: Map[_, _]) = AnalyzerOptions(map.asInstanceOf[Map[String, Any]])
+  def fromAnalyzerName(name: String) = AnalyzerOptions(Map("name" -> name).asInstanceOf[Map[String, Any]])
+  def fromKVsList(options: List[_]): AnalyzerOptions = {
     // options can be a List of key-value pairs or a single String element wrapped in a List
     // the latter is a corner case which we should deprecate
     options match {
-      case List(name: String) => new AnalyzerOptions(Map("name" -> name).asInstanceOf[Map[String, Any]])
-      case list: List[_] => new AnalyzerOptions(collectKVs(list).toMap[String, Any].asInstanceOf[Map[String, Any]])
+      case List(name: String) => AnalyzerOptions(Map("name" -> name).asInstanceOf[Map[String, Any]])
+      case list: List[_] => AnalyzerOptions(collectKVs(list).toMap[String, Any])
     }
   }
-  def collectKVs(list: List[_]): List[(String, Any)] =
+  private def collectKVs(list: List[_]): List[(String, Any)] =
     list.collect { case t @ (_: String, _: Any) => t }.asInstanceOf[List[(String, Any)]]
 
   def from(options: Any): Option[AnalyzerOptions] =
