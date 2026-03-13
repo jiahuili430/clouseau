@@ -12,12 +12,9 @@
 
 package com.cloudant.ziose.clouseau
 
-import org.apache.lucene.analysis.tokenattributes._
-import scala.collection.immutable.List
+import _root_.com.cloudant.ziose.scalang._
 import org.apache.lucene.analysis.Analyzer
-
-import _root_.com.cloudant.ziose.scalang
-import scalang._
+import org.apache.lucene.analysis.tokenattributes._
 
 class AnalyzerService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adapter[_, _]) extends Service(ctx) with Instrumented {
 

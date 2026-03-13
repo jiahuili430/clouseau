@@ -12,13 +12,12 @@
 
 package com.cloudant.ziose.clouseau
 
-import _root_.com.cloudant.ziose.scalang
-import scalang._
+import _root_.com.cloudant.ziose.scalang._
 
 import _root_.com.cloudant.ziose.core
-import core.ProcessContext
-import core.ActorConstructor
 import core.ActorBuilder
+import core.ActorConstructor
+import core.ProcessContext
 
 object AnalyzerServiceBuilder extends ActorConstructor[AnalyzerService] {
   def make(node: SNode, service_ctx: ServiceContext[ConfigurationArgs]) = {
