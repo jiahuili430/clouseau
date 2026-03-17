@@ -12,39 +12,40 @@
 
 package com.cloudant.ziose.clouseau
 
-import zio._
+import com.cloudant.ziose.core
+import com.cloudant.ziose.core.ActorBuilder.State
+import com.cloudant.ziose.scalang
+import core.{
+  Actor,
+  ActorBuilder,
+  ActorConstructor,
+  ActorFactory,
+  ActorResult,
+  AddressableActor,
+  Codec,
+  EngineWorker,
+  Node,
+  ProcessContext
+}
+import scalang.{Adapter, Pid, Reference, SNode, Service, ServiceContext}
+import zio.{&, Duration, RIO, Tag, Task, UIO, ZIO}
 
-import com.cloudant.ziose.scalang.{Service, ServiceContext}
-import com.cloudant.ziose.core.ProcessContext
-import com.cloudant.ziose.core.Node
-import com.cloudant.ziose.scalang.Reference
-import com.cloudant.ziose.core.ActorConstructor
-import com.cloudant.ziose.core.ActorBuilder
-import com.cloudant.ziose.scalang.SNode
-import com.cloudant.ziose.scalang.Adapter
-import com.cloudant.ziose.core.Actor
-import com.cloudant.ziose.core.EngineWorker
-import com.cloudant.ziose.core.AddressableActor
-import com.cloudant.ziose.core.ActorFactory
-import com.cloudant.ziose.scalang.Pid
-import com.cloudant.ziose.core.ActorResult
-import com.cloudant.ziose.core.Codec
 import java.time.Instant
 import java.time.temporal.ChronoUnit
 
 case class ClouseauSupervisor(
-    ctx: ServiceContext[ConfigurationArgs],
-    var manager: Option[Pid] = None,
-    var cleanup: Option[Pid] = None,
-    var analyzer: Option[Pid] = None,
-    var init: Option[Pid] = None,
-    var rex: Option[Pid] = None
-  )(implicit adapter: Adapter[_, _])
+  ctx: ServiceContext[ConfigurationArgs],
+  var manager: Option[Pid] = None,
+  var cleanup: Option[Pid] = None,
+  var analyzer: Option[Pid] = None,
+  var init: Option[Pid] = None,
+  var rex: Option[Pid] = None
+)(implicit adapter: Adapter[_, _])
     extends Service(ctx) {
   val TERMINATION_TIMEOUT = Duration.fromSeconds(3)
-  val logger = LoggerFactory.getLogger("clouseau.supervisor")
+  val logger              = LoggerFactory.getLogger("clouseau.supervisor")
 
-  override def onInit[P <: ProcessContext](_ctx: P): ZIO[Any, Throwable, _ <: ActorResult] = for {
+  override def onInit[P <: ProcessContext](_ctx: P): Task[_ <: ActorResult] = for {
     _ <- ZIO.succeed(spawnAndMonitorService[IndexManagerService, ConfigurationArgs](Symbol("main"), ctx.args))
     _ <- ZIO.succeed(spawnAndMonitorService[IndexCleanupService, ConfigurationArgs](Symbol("cleanup"), ctx.args))
     _ <- ZIO.succeed(spawnAndMonitorService[AnalyzerService, ConfigurationArgs](Symbol("analyzer"), ctx.args))
@@ -52,7 +53,7 @@ case class ClouseauSupervisor(
     _ <- ZIO.succeed(spawnAndMonitorService[RexService, None.type](Symbol("rex"), None))
   } yield ActorResult.Continue()
 
-  override def onTermination[PContext <: ProcessContext](reason: Codec.ETerm, ctx: PContext) = {
+  override def onTermination[PContext <: ProcessContext](reason: Codec.ETerm, ctx: PContext): UIO[Unit] = {
     val reasonScala = adapter.toScala(reason)
     for {
       _ <- stopChild(Symbol("main"), reasonScala, ctx)
@@ -64,56 +65,43 @@ case class ClouseauSupervisor(
   }
 
   override def handleCall(tag: (Pid, Any), request: Any): Any = {
+    def reply(ServicePid: Option[Pid]): (Symbol, Boolean) = {
+      val result = ServicePid match {
+        case Some(pid) => ping(pid)
+        case None      => false
+      }
+      (Symbol("reply"), result)
+    }
+
     request match {
-      case (Symbol("isAlive"), Symbol("main")) => {
-        val result = manager match {
-          case Some(pid) => ping(pid)
-          case None => false
-        }
-        (Symbol("reply"), result)
-      }
+      case (Symbol("isAlive"), Symbol("main")) =>
+        reply(manager)
       case (Symbol("isAlive"), Symbol("cleanup")) =>
-        val result = cleanup match {
-          case Some(pid) => ping(pid)
-          case None => false
-        }
-        (Symbol("reply"), result)
-      case (Symbol("isAlive"), Symbol("analyzer")) => {
-        val result = analyzer match {
-          case Some(pid) => ping(pid)
-          case None => false
-        }
-        (Symbol("reply"), result)
-      }
-      case (Symbol("isAlive"), Symbol("init")) => {
-        val result = init match {
-          case Some(pid) => ping(pid)
-          case None => false
-        }
-        (Symbol("reply"), result)
-      }
-      case (Symbol("isAlive"), Symbol("rex")) => {
-        val result = rex match {
-          case Some(pid) => ping(pid)
-          case None => false
-        }
-        (Symbol("reply"), result)
-      }
+        reply(cleanup)
+      case (Symbol("isAlive"), Symbol("analyzer")) =>
+        reply(analyzer)
+      case (Symbol("isAlive"), Symbol("init")) =>
+        reply(init)
+      case (Symbol("isAlive"), Symbol("rex")) =>
+        reply(rex)
       case (Symbol("getChild"), name: Symbol) =>
         (Symbol("reply"), getChild(name).getOrElse(Symbol("undefined")))
       case Symbol("listChildren") =>
-              (Symbol("reply"), Map(
-                Symbol("main") ->
-                  getChild(Symbol("main")).getOrElse(Symbol("undefined")),
-                Symbol("cleanup") ->
-                  getChild(Symbol("cleanup")).getOrElse(Symbol("undefined")),
-                Symbol("analyzer") ->
-                  getChild(Symbol("analyzer")).getOrElse(Symbol("undefined")),
-                Symbol("init") ->
-                  getChild(Symbol("init")).getOrElse(Symbol("undefined")),
-                Symbol("rex") ->
-                  getChild(Symbol("rex")).getOrElse(Symbol("undefined")),
-              ))
+        (
+          Symbol("reply"),
+          Map(
+            Symbol("main") ->
+              getChild(Symbol("main")).getOrElse(Symbol("undefined")),
+            Symbol("cleanup") ->
+              getChild(Symbol("cleanup")).getOrElse(Symbol("undefined")),
+            Symbol("analyzer") ->
+              getChild(Symbol("analyzer")).getOrElse(Symbol("undefined")),
+            Symbol("init") ->
+              getChild(Symbol("init")).getOrElse(Symbol("undefined")),
+            Symbol("rex") ->
+              getChild(Symbol("rex")).getOrElse(Symbol("undefined"))
+          )
+        )
     }
   }
 
@@ -137,46 +125,46 @@ case class ClouseauSupervisor(
     if (init.contains(pid)) {
       logger.warn(s"init crashed with reason: ${reason}")
       init = None
-      spawnAndMonitorService[EchoService, ConfigurationArgs](Symbol("init"), ctx.args)
+      spawnAndMonitorService[InitService, ConfigurationArgs](Symbol("init"), ctx.args)
     }
     if (rex.contains(pid)) {
       logger.warn(s"rex crashed with reason: ${reason}")
-      init = None
+      rex = None
       spawnAndMonitorService[RexService, None.type](Symbol("rex"), None)
     }
   }
 
   def getChild(name: Symbol): Option[Pid] = {
     name match {
-      case Symbol("main") => manager
-      case Symbol("cleanup") => cleanup
+      case Symbol("main")     => manager
+      case Symbol("cleanup")  => cleanup
       case Symbol("analyzer") => analyzer
-      case Symbol("init") => init
-      case Symbol("rex") => rex
-      case _ => None
+      case Symbol("init")     => init
+      case Symbol("rex")      => rex
+      case _                  => None
     }
   }
 
-  def waitTermination[PContext <: ProcessContext](pid: Pid, ctx: PContext) = {
+  private def waitTermination[PContext <: ProcessContext](pid: Pid, ctx: PContext): UIO[Unit] = {
     val address = ctx.addressFromEPid(pid.fromScala)
     ctx.worker.exchange.isKnown(address).repeatWhile(_ == true).timeout(TERMINATION_TIMEOUT).unit
   }
 
-  def stopChild[PContext <: ProcessContext](name: Symbol, reason: Any, ctx: PContext) = {
+  private def stopChild[PContext <: ProcessContext](name: Symbol, reason: Any, ctx: PContext): UIO[Unit] = {
     for {
       maybeChild <- ZIO.succeedBlocking(getChild(name))
-      _ <- ZIO.succeedBlocking(maybeChild.map(pid => exit(pid, reason)))
+      _          <- ZIO.succeedBlocking(maybeChild.map(pid => exit(pid, reason)))
       duration <- maybeChild match {
         case Some(pid) => waitTermination(pid, ctx).timed
-        case None => ZIO.succeed((Duration.Zero, ()))
+        case None      => ZIO.succeed((Duration.Zero, ()))
       }
-      _ <- ZIO.logDebug(s"${name.name} is shut down after ${duration._1.toMillis()} ms")
+      _ <- ZIO.logDebug(s"${name.name} is shut down after ${duration._1.toMillis} ms")
     } yield ()
   }
 
   private def spawnAndMonitorService[TS <: Service[A] with Actor: Tag, A <: Product](regName: Symbol, args: A)(implicit
     adapter: Adapter[_, _]
-  ) = {
+  ): Unit = {
     val beginTs = Instant.now()
 
     val result = (regName, args) match {
@@ -195,7 +183,7 @@ case class ClouseauSupervisor(
       case e =>
         throw new Throwable(s"cannot start ${regName.name} after ${timeSpentInMs} ms, due to ${e.toString}")
     }
-    val ref = monitor(pid)
+    monitor(pid)
 
     regName match {
       case Symbol("cleanup")  => cleanup = Some(pid)
@@ -208,7 +196,10 @@ case class ClouseauSupervisor(
 }
 
 object ClouseauSupervisor extends ActorConstructor[ClouseauSupervisor] {
-  def make(node: SNode, service_ctx: ServiceContext[ConfigurationArgs]) = {
+  def make(
+    node: SNode,
+    service_ctx: ServiceContext[ConfigurationArgs]
+  ): ActorBuilder.Builder[ClouseauSupervisor, State.Initial & State.Maker & State.Constructor] = {
     def maker[PContext <: ProcessContext](process_context: PContext): ClouseauSupervisor = {
       ClouseauSupervisor(service_ctx)(Adapter(process_context, node, ClouseauTypeFactory))
     }
@@ -224,7 +215,7 @@ object ClouseauSupervisor extends ActorConstructor[ClouseauSupervisor] {
   def start(
     node: SNode,
     config: Configuration
-  ): ZIO[EngineWorker & Node & ActorFactory, Throwable, AddressableActor[_, _]] = {
+  ): RIO[EngineWorker & Node & ActorFactory, AddressableActor[_, _]] = {
     val ctx = new ServiceContext[ConfigurationArgs] { val args = ConfigurationArgs(config) }
     node.spawnServiceZIO[ClouseauSupervisor, ConfigurationArgs](make(node, ctx))
   }
