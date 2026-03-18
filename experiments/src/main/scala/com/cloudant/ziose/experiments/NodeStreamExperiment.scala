@@ -104,10 +104,10 @@ package com.cloudant.ziose.experiments.node_stream
   * 7. Observe messages printed in sbt console
   **/
 
+import com.ericsson.otp.erlang._
 import zio._
-import zio.logging._
 import zio.Console._
-import _root_.com.ericsson.otp.erlang._
+import zio.logging._
 import zio.stream.ZStream
 
 import scala.concurrent.duration.Duration

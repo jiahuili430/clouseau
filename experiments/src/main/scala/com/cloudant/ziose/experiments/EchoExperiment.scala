@@ -63,9 +63,9 @@ package com.cloudant.ziose.experiments.echo
   *
   */
 
+import com.ericsson.otp.erlang._
 import zio._
 import zio.logging._
-import _root_.com.ericsson.otp.erlang._
 
 sealed trait EMessage {}
 

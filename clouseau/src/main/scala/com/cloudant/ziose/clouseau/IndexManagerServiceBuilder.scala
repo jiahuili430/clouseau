@@ -12,13 +12,9 @@
 
 package com.cloudant.ziose.clouseau
 
-import _root_.com.cloudant.ziose.scalang
-import scalang.{ServiceContext, SNode, Adapter, Pid}
-
-import _root_.com.cloudant.ziose.core
-import core.ProcessContext
-import core.ActorConstructor
-import core.ActorBuilder
+import com.cloudant.ziose._
+import core.{ActorBuilder, ActorConstructor, ProcessContext}
+import scalang.{Adapter, Pid, SNode, ServiceContext}
 
 object IndexManagerServiceBuilder extends ActorConstructor[IndexManagerService] {
   def make(node: SNode, service_ctx: ServiceContext[ConfigurationArgs]) = {

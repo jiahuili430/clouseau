@@ -17,13 +17,12 @@
 
 package com.cloudant.ziose.experiments.otp_status
 
+import com.ericsson.otp.erlang._
 import zio._
-import zio.logging._
 import zio.Console._
-import _root_.com.ericsson.otp.erlang._
-import zio.stream.ZStream
-
+import zio.logging._
 import zio.stream.SubscriptionRef
+import zio.stream.ZStream
 
 object Main extends ZIOAppDefault {
   sealed trait EMessage {}

@@ -53,9 +53,9 @@ package com.cloudant.ziose.experiments.receive
   * This results in a failure to run subsequent attempts to execute this test.
   */
 
+import com.ericsson.otp.erlang._
 import zio._
 import zio.logging._
-import _root_.com.ericsson.otp.erlang._
 
 class ZNode(node: OtpNode, mbox: OtpMbox) {
   def receiveMessage(): Option[OtpMsg] = {

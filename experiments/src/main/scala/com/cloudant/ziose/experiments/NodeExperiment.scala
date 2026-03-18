@@ -64,9 +64,9 @@ package com.cloudant.ziose.experiments.node
   * 7. Expected result is to see "received message $message" event in sbt console
   **/
 
+import com.ericsson.otp.erlang._
 import zio._
 import zio.logging._
-import _root_.com.ericsson.otp.erlang._
 
 import scala.concurrent.duration.Duration
 
