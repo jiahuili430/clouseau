@@ -1,19 +1,15 @@
 package com.cloudant.ziose.clouseau
 
-import com.cloudant.ziose._
-import core.Codec._
-import scalang.{Adapter, Pid, TypeFactory, Reference}
+import com.cloudant.ziose.core.Codec._
+import com.cloudant.ziose.scalang.{Adapter, Pid, Reference, TypeFactory}
 import org.apache.lucene.document.Field.{Index, Store, TermVector}
-import org.apache.lucene.document.{Document, Field, StringField, DoubleField, DoubleDocValuesField}
+import org.apache.lucene.document.{Document, DoubleDocValuesField, DoubleField, Field, StringField}
 import org.apache.lucene.facet.params.FacetIndexingParams
 import org.apache.lucene.facet.sortedset.SortedSetDocValuesFacetFields
 import org.apache.lucene.facet.taxonomy.CategoryPath
-
-import scala.collection.JavaConverters._
 import org.apache.lucene.util.BytesRef
 
-class TermReader // we could just have a reference to mailbox here
-// but we should not remove abstraction
+import scala.collection.JavaConverters._
 
 sealed trait ClouseauMessage
 case class CleanupDbMsg(dbName: String, activeSigs: List[String]) extends ClouseauMessage
@@ -24,13 +20,13 @@ case class DeleteDocMsg(id: String)                               extends Clouse
 case class DiskSizeMsg(path: String)                              extends ClouseauMessage
 case class Group1Msg(query: String, field: String, refresh: Boolean, groupSort: Any, groupOffset: Int, groupLimit: Int)
     extends ClouseauMessage
-case class Group2Msg(options: Map[Symbol, Any])                extends ClouseauMessage
-case class OpenIndexMsg(peer: Pid, path: String, options: Any) extends ClouseauMessage
-case class RenamePathMsg(dbName: String)                       extends ClouseauMessage
-case class SearchRequest(options: Map[Symbol, Any])            extends ClouseauMessage
-case class SetPurgeSeqMsg(seq: Long)                           extends ClouseauMessage
-case class SetUpdateSeqMsg(seq: Long)                          extends ClouseauMessage
-case class UpdateDocMsg(id: String, doc: Document)             extends ClouseauMessage
+case class Group2Msg(options: Map[Symbol, Any])                            extends ClouseauMessage
+case class OpenIndexMsg(peer: Pid, path: String, options: AnalyzerOptions) extends ClouseauMessage
+case class RenamePathMsg(dbName: String)                                   extends ClouseauMessage
+case class SearchRequest(options: Map[Symbol, Any])                        extends ClouseauMessage
+case class SetPurgeSeqMsg(seq: Long)                                       extends ClouseauMessage
+case class SetUpdateSeqMsg(seq: Long)                                      extends ClouseauMessage
+case class UpdateDocMsg(id: String, doc: Document)                         extends ClouseauMessage
 
 object ClouseauTypeFactory extends TypeFactory {
   type T = ClouseauMessage
@@ -63,82 +59,27 @@ object ClouseauTypeFactory extends TypeFactory {
             groupSort,
             groupOffset: ENumber,
             groupLimit: ENumber
-          ) => {
+          ) =>
         (groupOffset.toInt, groupLimit.toInt) match {
-          case (Some(groupOffset), Some(groupLimit)) => {
+          case (Some(groupOffset), Some(groupLimit)) =>
             Some(
-              Group1Msg(query.asString, field.asString, refresh, adapter.toScala(groupSort), groupOffset, groupLimit)
+              Group1Msg(
+                query.asString,
+                field.asString,
+                refresh,
+                adapter.toScala(groupSort),
+                groupOffset,
+                groupLimit
+              )
             )
-          }
           case _ => None
         }
-      }
-      case ETuple(EAtom("group2"), options: EList) => {
+      case ETuple(EAtom("group2"), options: EList) =>
         Some(Group2Msg(options.map(adapter.toScala).asInstanceOf[List[(Symbol, Any)]].toMap))
-      }
-      case ETuple(EAtom("update"), id: EBinary, fields: EList) => { // TODO verify maybe it should be EBinary(id)
-        var doc = new Document()
-        doc.add(new StringField("_id", id.asString, Store.YES))
-        for (fieldE <- fields) {
-          val fieldS = adapter.toScala(fieldE)
-          fieldS match {
-            case (name: String, value: String, options: List[(String, Any) @unchecked]) =>
-              val map = options.collect { case t @ (key: String, value: Any) => t }.toMap
-              constructField(name, value, toStore(map), toIndex(map), toTermVector(map)) match {
-                case Some(field: Field) =>
-                  map.get("boost") match {
-                    case Some(boost: Number) =>
-                      field.setBoost(toFloat(1.2))
-                      'ok
-                    // make the match exhaustive
-                    case Some(_) =>
-                      'ok
-                    case None =>
-                      'ok
-                  }
-                  doc.add(field)
-                  if (isFacet(map) && value.nonEmpty) {
-                    val fp    = FacetIndexingParams.DEFAULT
-                    val delim = fp.getFacetDelimChar
-                    if (!name.contains(delim) && !value.contains(delim)) {
-                      val facets = new SortedSetDocValuesFacetFields(fp)
-                      facets.addFields(doc, List(new CategoryPath(name, value)).asJava)
-                    }
-                  }
-                case None =>
-                  'ok
-              }
-            case (name: String, value: Boolean, options: List[(String, Any) @unchecked]) =>
-              val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
-              constructField(name, value.toString, toStore(map), Index.NOT_ANALYZED, toTermVector(map)) match {
-                case Some(field) =>
-                  doc.add(field)
-                case None =>
-                  'ok
-              }
-            case (name: String, value: Double, options: List[(String, Any) @unchecked]) =>
-              val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
-              doc.add(new DoubleField(name, value, toStore(map)))
-              if (isFacet(map)) {
-                doc.add(new DoubleDocValuesField(name, value))
-              }
-            case (name: String, value: Any, options: List[(String, Any) @unchecked]) =>
-              val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
-              toDouble(value) match {
-                case Some(doubleValue) =>
-                  doc.add(new DoubleField(name, doubleValue, toStore(map)))
-                  if (isFacet(map)) {
-                    doc.add(new DoubleDocValuesField(name, doubleValue))
-                  }
-                case None =>
-                  logger.warn("Unrecognized value: %s".format(value))
-                  'ok
-              }
-          }
-        }
+      case ETuple(EAtom("update"), id: EBinary, fields: EList) => // TODO verify maybe it should be EBinary(id)
+        val doc   = readDoc(id, fields)
         val docId = doc.getField("_id").stringValue
         Some(UpdateDocMsg(docId, doc))
-      }
       case ETuple(EAtom("open"), peer, path: EBinary, options) =>
         AnalyzerOptions
           .from(adapter.toScala(options))
@@ -152,7 +93,68 @@ object ClouseauTypeFactory extends TypeFactory {
       case ETuple(EAtom("set_update_seq"), seq: ENumber) =>
         seq.toLong.map(SetUpdateSeqMsg)
       // most of the messages would be matching here so we can handle them elsewhere
-      case other => None
+      case _ => None
+    }
+  }
+
+  private def readDoc(id: EBinary, fields: EList)(implicit adapter: Adapter[_, _]): Document = {
+    val doc = new Document()
+    doc.add(new StringField("_id", id.asString, Store.YES))
+    for (fieldE <- fields) {
+      val fieldS = adapter.toScala(fieldE)
+      addFields(doc, fieldS)
+    }
+    doc
+  }
+
+  private def addFields(doc: Document, fieldS: Any)(implicit adapter: Adapter[_, _]): Unit = {
+    fieldS match {
+      case (name: String, value: String, options: List[(String, Any) @unchecked]) =>
+        val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
+        constructField(name, value, toStore(map), toIndex(map), toTermVector(map)) match {
+          case Some(field: Field) =>
+            map.get("boost") match {
+              case Some(boost: Number) =>
+                field.setBoost(toFloat(boost))
+              // make the match exhaustive
+              case Some(_) => ()
+              case None    => ()
+            }
+            doc.add(field)
+            if (isFacet(map) && value.nonEmpty) {
+              val fp    = FacetIndexingParams.DEFAULT
+              val delim = fp.getFacetDelimChar
+              if (!name.contains(delim) && !value.contains(delim)) {
+                val facets = new SortedSetDocValuesFacetFields(fp)
+                facets.addFields(doc, List(new CategoryPath(name, value)).asJava)
+              }
+            }
+          case None => ()
+        }
+      case (name: String, value: Boolean, options: List[(String, Any) @unchecked]) =>
+        val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
+        constructField(name, value.toString, toStore(map), Index.NOT_ANALYZED, toTermVector(map)) match {
+          case Some(field) =>
+            doc.add(field)
+          case None => ()
+        }
+      case (name: String, value: Double, options: List[(String, Any) @unchecked]) =>
+        val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
+        doc.add(new DoubleField(name, value, toStore(map)))
+        if (isFacet(map)) {
+          doc.add(new DoubleDocValuesField(name, value))
+        }
+      case (name: String, value: Any, options: List[(String, Any) @unchecked]) =>
+        val map = options.collect { case t @ (_: String, _: Any) => t }.toMap
+        toDouble(value) match {
+          case Some(doubleValue) =>
+            doc.add(new DoubleField(name, doubleValue, toStore(map)))
+            if (isFacet(map)) {
+              doc.add(new DoubleDocValuesField(name, doubleValue))
+            }
+          case None =>
+            logger.warn("Unrecognized value: %s".format(value))
+        }
     }
   }
 
@@ -231,12 +233,12 @@ object ClouseauTypeFactory extends TypeFactory {
     }
   }
 
-  def toTermVector(options: Map[String, Any]): TermVector = {
+  private def toTermVector(options: Map[String, Any]): TermVector = {
     val termVector = options.getOrElse("termvector", "no").asInstanceOf[String]
     TermVector.valueOf(termVector.toUpperCase)
   }
 
-  def isFacet(options: Map[String, Any]) = {
+  private def isFacet(options: Map[String, Any]) = {
     options.get("facet") match {
       case Some(bool: Boolean) =>
         bool
