@@ -5,10 +5,10 @@ import com.cloudant.ziose.{core, scalang}
 import core.ActorBuilder.State
 import core.{ActorBuilder, ActorConstructor, ProcessContext}
 import scalang.{Adapter, Pid, SNode, Service, ServiceContext}
+import zio.{&, UIO, ZIO}
 
 import java.time.Instant
 import java.time.temporal.ChronoUnit
-import zio._
 
 class EchoService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adapter[_, _]) extends Service(ctx) {
   val isProduction = true
@@ -45,7 +45,8 @@ class EchoService(ctx: ServiceContext[ConfigurationArgs])(implicit adapter: Adap
         logger.warn(s"[handleCall] Unexpected message: $msg ...")
     }
   }
-  override def onTermination[PContext <: ProcessContext](reason: core.Codec.ETerm, ctx: PContext) = {
+
+  override def onTermination[PContext <: ProcessContext](reason: core.Codec.ETerm, ctx: PContext): UIO[Unit] = {
     ZIO.logTrace("onTermination")
   }
 
@@ -79,12 +80,7 @@ private object EchoService extends ActorConstructor[EchoService] {
   }
 
   def start(node: SNode, name: String, config: Configuration)(implicit adapter: Adapter[_, _]): Any = {
-    val ctx: ServiceContext[ConfigurationArgs] = {
-      new ServiceContext[ConfigurationArgs] {
-        val args: ConfigurationArgs = ConfigurationArgs(config)
-      }
-    }
-    node.spawnService[EchoService, ConfigurationArgs](make(node, ctx, name)) match {
+    node.spawnService[EchoService, ConfigurationArgs](make(node, ctx(config), name)) match {
       case core.Success(actor) =>
         logger.debug(s"Started $name")
         (Symbol("ok"), Pid.toScala(actor.self.pid))
@@ -97,12 +93,10 @@ private object EchoService extends ActorConstructor[EchoService] {
     name: String,
     config: Configuration
   ): ZIO[core.EngineWorker & core.Node & core.ActorFactory, core.Node.Error, core.AddressableActor[_, _]] = {
-    val ctx: ServiceContext[ConfigurationArgs] = {
-      new ServiceContext[ConfigurationArgs] {
-        val args: ConfigurationArgs = ConfigurationArgs(config)
-      }
-    }
-    node.spawnServiceZIO[EchoService, ConfigurationArgs](make(node, ctx, name))
+    node.spawnServiceZIO[EchoService, ConfigurationArgs](make(node, ctx(config), name))
   }
 
+  private def ctx(config: Configuration): ServiceContext[ConfigurationArgs] = {
+    new ServiceContext[ConfigurationArgs] { val args = ConfigurationArgs(config) }
+  }
 }
