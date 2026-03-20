@@ -15,57 +15,44 @@ package com.cloudant.ziose.clouseau
 import java.io.File
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicInteger
-
 import org.apache.lucene.document._
 import org.apache.lucene.index._
 import org.apache.lucene.store._
 import org.apache.lucene.search._
 import grouping.SearchGroup
-import grouping.term.{ TermSecondPassGroupingCollector, TermFirstPassGroupingCollector }
+import grouping.term.{TermFirstPassGroupingCollector, TermSecondPassGroupingCollector}
 import org.apache.lucene.util.BytesRef
 import org.apache.lucene.util.Version
 import org.apache.lucene.search.IndexSearcher
 import org.apache.lucene.search.BooleanClause.Occur
 import org.apache.lucene.queryparser.classic.QueryParser
 import org.apache.lucene.queryparser.classic.ParseException
-import org.apache.lucene.search.highlight.{
-  Highlighter,
-  QueryScorer,
-  SimpleHTMLFormatter,
-  SimpleFragmenter
-}
+import org.apache.lucene.search.highlight.{Highlighter, QueryScorer, SimpleFragmenter, SimpleHTMLFormatter}
 import org.apache.lucene.analysis.Analyzer
 import _root_.com.cloudant.ziose.scalang
 import scalang._
+
 import collection.JavaConverters._
-
 import Utils._
-
-import org.apache.lucene.facet.sortedset.{
-  SortedSetDocValuesReaderState,
-  SortedSetDocValuesAccumulator
-}
-import org.apache.lucene.facet.range.{
-  DoubleRange,
-  RangeAccumulator,
-  RangeFacetRequest
-}
+import org.apache.lucene.facet.sortedset.{SortedSetDocValuesAccumulator, SortedSetDocValuesReaderState}
+import org.apache.lucene.facet.range.{DoubleRange, RangeAccumulator, RangeFacetRequest}
 import org.apache.lucene.facet.search._
 import org.apache.lucene.facet.taxonomy.CategoryPath
-import org.apache.lucene.facet.params.{ FacetIndexingParams, FacetSearchParams }
-import scala.Some
+import org.apache.lucene.facet.params.{FacetIndexingParams, FacetSearchParams}
+
 import _root_.com.spatial4j.core.context.SpatialContext
 import _root_.com.spatial4j.core.distance.DistanceUtils
+
 import java.util.HashSet
 import conversions._
 import Utils.ensureElementsType
-import java.lang.Throwable
+
 import com.cloudant.ziose.core.ProcessContext
 import com.cloudant.ziose.core.Codec
-import zio.ZIO
+import zio.{Duration, UIO, ZIO}
+
 import java.time.temporal.ChronoUnit
 import java.time.Instant
-import zio.Duration
 
 case class IndexServiceArgs(config: Configuration, name: String, queryParser: QueryParser, writer: IndexWriter)
 case class HighlightParameters(highlighter: Highlighter, highlightFields: List[String], highlightNumber: Int, analyzers: List[Analyzer])
@@ -132,7 +119,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
     logger.debug(prefix_name("Opened at update_seq %d".format(updateSeq)))
   }
 
-  override def onTermination[PContext <: ProcessContext](reason: Codec.ETerm, ctx: PContext) = {
+  override def onTermination[PContext <: ProcessContext](reason: Codec.ETerm, ctx: PContext): UIO[Unit] = {
     ZIO.logTrace("onTermination") *> ZIO.succeedBlocking(exit(Codec.toScala(reason)))
   }
 
@@ -222,7 +209,6 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
         forceRefresh = true
         logger.debug(prefix_name("Forced merge complete."))
       })
-      ()
     case _ =>
       'ignored
   }
@@ -253,7 +239,7 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
       purgeSeq = newPurgeSeq.longValue
       forceRefresh = true
       committing = false
-      logger.debug(prefix_name("Committed update sequence %d and purge sequence %d".format(newUpdateSeq, newPurgeSeq)))
+      logger.debug(prefix_name(s"Committed update sequence $newUpdateSeq and purge sequence $newPurgeSeq"))
       val(completed, waiting) = commitWaiters.partition(w => w.min_purge_seq <= purgeSeq)
       completed.foreach(w => Service.reply(w.tag, 'ok))
       commitWaiters = waiting
@@ -284,10 +270,9 @@ class IndexService(ctx: ServiceContext[IndexServiceArgs])(implicit adapter: Adap
             "too many fields will lead to heap exhaustion"))
       }
     }
-    ()
   }
 
-  override def exit(msg: Any) = {
+  override def exit(msg: Any): Unit = {
     logger.debug(prefix_name("Closed with reason: %.1000s".format(msg)))
     try {
       reader.close()
@@ -986,9 +971,7 @@ object IndexService {
       case Some(extractor(value)) =>
         Some(value)
       // to convince compiler that we have exhaustive search
-      case Some(_) =>
-        None
-      case None =>
+      case _ =>
         None
     }
   }
@@ -1041,14 +1024,11 @@ object IndexService {
     ).orElse({ case notAList => throw new ParseException("invalid ranges query") })
 
     val extractor = asRange.Extractor
-
     getOption[Any](options, 'ranges) match {
       case Some(extractor(value)) =>
         Some(value)
       // to convince compiler that we have exhaustive search
-      case Some(_) =>
-        None
-      case None =>
+      case _ =>
         None
     }
   }
@@ -1072,9 +1052,7 @@ object IndexService {
       case Some(extractor(value)) =>
         Some(value)
       // to convince compiler that we have exhaustive search
-      case Some(_) =>
-        None
-      case None =>
+      case _ =>
         None
     }
   }
@@ -1117,14 +1095,11 @@ object IndexService {
     ).orElse({ case notAList => throw new ParseException("invalid groups query") })
 
     val extractor = asGroup.Extractor
-
     getOption[Any](options, 'groups) match {
       case Some(extractor(value)) =>
         Some(value)
       // to convince compiler that we have exhaustive search
-      case Some(_) =>
-        None
-      case None =>
+      case _ =>
         None
     }
   }
