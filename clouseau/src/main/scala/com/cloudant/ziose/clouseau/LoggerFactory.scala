@@ -121,8 +121,6 @@ object LoggerFactory {
     }
   }
 
-  private val slf4jLogger = org.slf4j.LoggerFactory.getLogger("SLF4J-LOGGER")
-
   private def logFilterConfig(level: LogLevel) = LogFilter.LogLevelByNameConfig(
     level,
     "zio.logging.slf4j" -> level,
