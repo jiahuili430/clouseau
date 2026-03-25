@@ -1,38 +1,39 @@
 package com.cloudant.ziose.clouseau
 
 import com.cloudant.ziose.scalang.Adapter
-import zio.{Cause, Runtime, LogLevel, Trace, ZIO, ZLayer, ZLogger, UIO, Unsafe, Duration}
-import zio.ZIO.{logDebug, logError, logErrorCause, logInfo, logWarning, logWarningCause}
+
+import java.time.format.DateTimeFormatter
+import java.time.ZoneOffset
+import org.tinylog.configuration.Configuration
+import org.tinylog.Logger
+import zio.logging.LogFormat._
+import zio.logging.slf4j.bridge.Slf4jBridge
 import zio.logging.{
-  loggerName,
-  consoleLogger,
-  consoleJsonLogger,
   ConsoleLoggerConfig,
+  FilteredLogger,
   LogFilter,
   LogGroup,
   LoggerNameExtractor,
-  FilteredLogger
+  consoleJsonLogger,
+  consoleLogger,
+  loggerName
 }
-import zio.logging.LogFormat._
-import zio.logging.slf4j.bridge.Slf4jBridge
-import org.tinylog.Logger
-import org.tinylog.configuration.Configuration
-import java.time.format.DateTimeFormatter
-import java.time.ZoneOffset
+import zio.ZIO.{logDebug, logError, logErrorCause, logInfo, logWarning, logWarningCause}
+import zio.{Cause, Duration, LogLevel, Runtime, Trace, UIO, ULayer, Unsafe, ZIO, ZLayer, ZLogger}
 
 // ad-hoc extension of zio.logging.LoggerLayers, shall be backported to upstream
 object LoggerLayers {
   def syslogLogger(
     config: ConsoleLoggerConfig,
     syslogConfig: Option[SyslogConfiguration]
-  ): ZLayer[Any, Nothing, Unit] = {
+  ): ULayer[Unit] = {
     makeZLayer(config.format.toLogger, config.toFilter, syslogConfig)
   }
 
   def syslogJsonLogger(
     config: ConsoleLoggerConfig,
     syslogConfig: Option[SyslogConfiguration]
-  ): ZLayer[Any, Nothing, Unit] = {
+  ): ULayer[Unit] = {
     makeZLayer(config.format.toJsonLogger, config.toFilter, syslogConfig)
   }
 
@@ -40,7 +41,7 @@ object LoggerLayers {
     logger: ZLogger[String, String],
     filter: LogFilter[String],
     config: Option[SyslogConfiguration]
-  ): ZLayer[Any, Nothing, Unit] = {
+  ): ULayer[Unit] = {
     ZLayer.scoped {
       ZIO
         .succeed(syslogLogger(logger, config))
@@ -52,7 +53,7 @@ object LoggerLayers {
   private def syslogLogger(
     logger: ZLogger[String, String],
     config: Option[SyslogConfiguration]
-  ): ZLogger[String, Any] = {
+  ): ZLogger[String, Unit] = {
     val protocol = config.flatMap(_.protocol).getOrElse(SyslogProtocol.UDP)
     val host     = config.flatMap(_.host).getOrElse("localhost")
     val port     = config.flatMap(_.port).getOrElse(514)
@@ -68,7 +69,7 @@ object LoggerLayers {
     Configuration.set("writer.facility", facility)
     Configuration.set("writer.level", level)
 
-    val syslogLogger = logger.map { line =>
+    val syslogLogger: ZLogger[String, Unit] = logger.map { line =>
       try Logger.info(line.asInstanceOf[Object])
       catch {
         case t: VirtualMachineError => throw t
@@ -160,13 +161,13 @@ object LoggerFactory {
       LogGroup.apply((_, _, _, _, _, _, _, annotations) => annotations)
     }
     val annotationsNonEmpty: LogFilter[Any] = {
-      LogFilter.apply[Any, Map[String, String]](extractAnnotations, !_.isEmpty)
+      LogFilter.apply[Any, Map[String, String]](extractAnnotations, _.nonEmpty)
     }
 
     label("timestamp", timestamp) |-|
       label("level", level) |-|
       label("fiberId", fiberId) |-|
-      (label("annotations", annotations)).filter(annotationsNonEmpty) |-|
+      label("annotations", annotations).filter(annotationsNonEmpty) |-|
       label("location", label("module", enclosingClass) |-| label("line", traceLine)) |-|
       label("message", quoted(line)) + (space + label("cause", cause)).filter(LogFilter.causeNonEmpty)
   }
@@ -190,7 +191,7 @@ object LoggerFactory {
     logger >+> Slf4jBridge.init(config.toFilter)
   }
 
-  def loggerDefault(cfg: LogConfiguration) = {
+  def loggerDefault(cfg: LogConfiguration): ULayer[Unit] = {
     Runtime.removeDefaultLoggers >>> loggerForOutput(cfg)
   }
 
