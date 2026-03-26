@@ -116,7 +116,7 @@ object LoggerFactory {
     }
 
     def log(event: UIO[Unit])(implicit adapter: Adapter[_, _]): Unit = {
-      Unsafe.unsafe(implicit u => adapter.runtime.unsafe.run(event.timeout(Duration.fromSeconds(10)).forkDaemon))
+      event.timeout(Duration.fromSeconds(10)).unsafeRunWithForkDaemon
     }
   }
 

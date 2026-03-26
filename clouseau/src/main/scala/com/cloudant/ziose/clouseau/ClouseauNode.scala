@@ -2,25 +2,23 @@ package com.cloudant.ziose.clouseau
 
 import _root_.com.cloudant.ziose.scalang
 import _root_.com.cloudant.ziose.core
-import core.ProcessContext
+import core.{Actor, ActorBuilder, AddressableActor, EngineWorker, Node, ProcessContext}
 import scalang.Service
 import scalang.Adapter
-import core.Actor
-import core.AddressableActor
-import core.ActorBuilder
 import scalang.SNode
 import zio.Exit.Failure
 import zio.Exit.Success
 import com.cloudant.ziose.scalang.ScalangMeterRegistry
 import com.cloudant.ziose.macros.CheckEnv
-import zio.{&, LogLevel, Runtime, Tag, Unsafe}
+import zio.{&, Exit, LogLevel, Runtime, Tag}
 
 class ClouseauNode(implicit
   override val runtime: Runtime[core.EngineWorker & core.Node],
   worker: core.EngineWorker,
   metricsRegistry: ScalangMeterRegistry,
   logLevel: LogLevel
-) extends SNode(metricsRegistry, logLevel)(runtime) {
+) extends SNode(metricsRegistry, logLevel)(runtime)
+    with ZioSupport {
   /*
    * Each service would need to implement a constructor in the following form
    *
@@ -50,27 +48,23 @@ class ClouseauNode(implicit
   val workerId = worker.id
 
   override def spawn(fun: scalang.Process => Unit): scalang.Pid = {
-    val result = Unsafe.unsafe { implicit unsafe =>
-      runtime.unsafe
-        .run(
-          for {
-            addressable <- worker.spawn(SimpleProcess.make(this, fun))
-          } yield addressable
-        )
-        .getOrThrowFiberFailure
-    }
+    val result: AddressableActor[_ <: Actor, _ <: ProcessContext] = (
+      for {
+        addressable <- worker.spawn(SimpleProcess.make(this, fun))
+      } yield addressable
+    ).unsafeRunWithCustomRuntimeGetOrThrow(runtime)
+
     result.self
   }
 
   override def spawnService[TS <: Service[A] with Actor: Tag, A <: Product](
     builder: ActorBuilder.Sealed[TS]
   )(implicit adapter: Adapter[_, _]): core.Result[core.Node.Error, AddressableActor[TS, ProcessContext]] = {
-    val result = Unsafe.unsafe { implicit unsafe =>
-      runtime.unsafe
-        .run(
-          spawnServiceZIO[TS, A](builder)
-        )
+    val result: Exit[Node.Error, AddressableActor[TS, _ <: ProcessContext]] = {
+      spawnServiceZIO[TS, A](builder)
+        .unsafeRunWithCustomRuntime(runtime)
     } // TODO: kill the caller
+
     result match {
       case Failure(cause) if cause.isFailure     => core.Failure(cause.failureOption.get)
       case Failure(cause) if cause.isDie         => core.Failure(core.Node.Error.Unknown(cause.dieOption.get))
@@ -86,12 +80,11 @@ class ClouseauNode(implicit
     reentrant: Boolean
   )(implicit adapter: Adapter[_, _]): core.Result[core.Node.Error, AddressableActor[TS, ProcessContext]] = {
     // TODO Handle reentrant argument
-    val result = Unsafe.unsafe { implicit unsafe =>
-      runtime.unsafe
-        .run(
-          spawnServiceZIO[TS, A](builder, reentrant)
-        )
+    val result: Exit[Node.Error, AddressableActor[TS, _ <: ProcessContext]] = {
+      spawnServiceZIO[TS, A](builder)
+        .unsafeRunWithCustomRuntime(runtime)
     } // TODO: kill the caller
+
     result match {
       case Failure(cause) if cause.isFailure     => core.Failure(cause.failureOption.get)
       case Failure(cause) if cause.isDie         => core.Failure(core.Node.Error.Unknown(cause.dieOption.get))
