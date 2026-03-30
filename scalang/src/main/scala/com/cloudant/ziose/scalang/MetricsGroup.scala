@@ -26,9 +26,9 @@ case class MetricsGroup(klass: Class[_], metricsRegistry: ScalangMeterRegistry) 
       for {
         _ <- zioCounter.update(delta)
       } yield ()
-    ).unsafeRun
-    def -=(delta: Int): Unit       = zioCounter.update(-delta.abs).unsafeRun
-    def count: MetricState.Counter = zioCounter.value.unsafeRun
+    ).unsafeRunGetOrThrow
+    def -=(delta: Int): Unit       = zioCounter.update(-delta.abs).unsafeRunGetOrThrow
+    def count: MetricState.Counter = zioCounter.value.unsafeRunGetOrThrow
     def clear                      = zioCounter.fromConst(0)
 
     def get: Metric.Counter[Long] = this.zioCounter
@@ -47,7 +47,7 @@ case class MetricsGroup(klass: Class[_], metricsRegistry: ScalangMeterRegistry) 
   def counter(name: String): Counter = {
     val zioCounter = Metric.counter(constructName(name))
     // register to JMX
-    zioCounter.update(0).unsafeRun
+    zioCounter.update(0).unsafeRunGetOrThrow
     new Counter(zioCounter)
   }
 

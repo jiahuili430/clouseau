@@ -13,12 +13,11 @@ import com.cloudant.ziose.macros.CheckEnv
 import zio.{&, Exit, LogLevel, Runtime, Tag}
 
 class ClouseauNode(implicit
-  override val runtime: Runtime[core.EngineWorker & core.Node],
-  worker: core.EngineWorker,
+  override val runtime: Runtime[EngineWorker & Node],
+  worker: EngineWorker,
   metricsRegistry: ScalangMeterRegistry,
   logLevel: LogLevel
-) extends SNode(metricsRegistry, logLevel)(runtime)
-    with ZioSupport {
+) extends SNode(metricsRegistry, logLevel)(runtime) {
   /*
    * Each service would need to implement a constructor in the following form
    *
@@ -48,18 +47,18 @@ class ClouseauNode(implicit
   val workerId = worker.id
 
   override def spawn(fun: scalang.Process => Unit): scalang.Pid = {
-    val result: AddressableActor[_ <: Actor, _ <: ProcessContext] = (
+    val addressableActor: AddressableActor[_ <: Actor, _ <: ProcessContext] = (
       for {
         addressable <- worker.spawn(SimpleProcess.make(this, fun))
       } yield addressable
     ).unsafeRunWithCustomRuntimeGetOrThrow(runtime)
 
-    result.self
+    addressableActor.self
   }
 
   override def spawnService[TS <: Service[A] with Actor: Tag, A <: Product](
     builder: ActorBuilder.Sealed[TS]
-  )(implicit adapter: Adapter[_, _]): core.Result[core.Node.Error, AddressableActor[TS, ProcessContext]] = {
+  )(implicit adapter: Adapter[_, _]): core.Result[Node.Error, AddressableActor[TS, ProcessContext]] = {
     val result: Exit[Node.Error, AddressableActor[TS, _ <: ProcessContext]] = {
       spawnServiceZIO[TS, A](builder)
         .unsafeRunWithCustomRuntime(runtime)
@@ -67,10 +66,10 @@ class ClouseauNode(implicit
 
     result match {
       case Failure(cause) if cause.isFailure     => core.Failure(cause.failureOption.get)
-      case Failure(cause) if cause.isDie         => core.Failure(core.Node.Error.Unknown(cause.dieOption.get))
-      case Failure(cause) if cause.isInterrupted => core.Failure(core.Node.Error.Interrupt(cause.interruptOption.get))
-      case Failure(cause: core.Node.Error)       => core.Failure(cause)
-      case Failure(cause) => core.Failure(core.Node.Error.Unknown(new Throwable(cause.prettyPrint)))
+      case Failure(cause) if cause.isDie         => core.Failure(Node.Error.Unknown(cause.dieOption.get))
+      case Failure(cause) if cause.isInterrupted => core.Failure(Node.Error.Interrupt(cause.interruptOption.get))
+      case Failure(cause: Node.Error)            => core.Failure(cause)
+      case Failure(cause)                        => core.Failure(Node.Error.Unknown(new Throwable(cause.prettyPrint)))
       case Success(actor) => core.Success(actor.asInstanceOf[AddressableActor[TS, ProcessContext]])
     }
   }
@@ -78,7 +77,7 @@ class ClouseauNode(implicit
   override def spawnService[TS <: Service[A] with Actor: Tag, A <: Product](
     builder: ActorBuilder.Sealed[TS],
     reentrant: Boolean
-  )(implicit adapter: Adapter[_, _]): core.Result[core.Node.Error, AddressableActor[TS, ProcessContext]] = {
+  )(implicit adapter: Adapter[_, _]): core.Result[Node.Error, AddressableActor[TS, ProcessContext]] = {
     // TODO Handle reentrant argument
     val result: Exit[Node.Error, AddressableActor[TS, _ <: ProcessContext]] = {
       spawnServiceZIO[TS, A](builder)
@@ -87,10 +86,10 @@ class ClouseauNode(implicit
 
     result match {
       case Failure(cause) if cause.isFailure     => core.Failure(cause.failureOption.get)
-      case Failure(cause) if cause.isDie         => core.Failure(core.Node.Error.Unknown(cause.dieOption.get))
-      case Failure(cause) if cause.isInterrupted => core.Failure(core.Node.Error.Interrupt(cause.interruptOption.get))
-      case Failure(cause: core.Node.Error)       => core.Failure(cause)
-      case Failure(cause) => core.Failure(core.Node.Error.Unknown(new Throwable(cause.prettyPrint)))
+      case Failure(cause) if cause.isDie         => core.Failure(Node.Error.Unknown(cause.dieOption.get))
+      case Failure(cause) if cause.isInterrupted => core.Failure(Node.Error.Interrupt(cause.interruptOption.get))
+      case Failure(cause: Node.Error)            => core.Failure(cause)
+      case Failure(cause)                        => core.Failure(Node.Error.Unknown(new Throwable(cause.prettyPrint)))
       case Success(actor) => core.Success(actor.asInstanceOf[AddressableActor[TS, ProcessContext]])
     }
   }

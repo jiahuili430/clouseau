@@ -1,25 +1,26 @@
 package com.cloudant.ziose.otp
 
 import java.util.concurrent.atomic.AtomicBoolean
-import com.cloudant.ziose.core.Mailbox
-
+import com.cloudant.ziose.core.{
+  Address,
+  Codec,
+  Mailbox,
+  MessageEnvelope,
+  Metrics,
+  Name,
+  NameOnNode,
+  Node,
+  PID,
+  ZioSupport
+}
 import com.ericsson.otp.erlang.{
-  OtpMbox,
-  OtpMboxListener,
+  OtpErlangAtom,
+  OtpErlangConnectionException,
   OtpErlangException,
   OtpErlangExit,
-  OtpErlangConnectionException,
-  OtpErlangAtom
+  OtpMbox,
+  OtpMboxListener
 }
-
-import com.cloudant.ziose.core.Codec
-import com.cloudant.ziose.core.Address
-import com.cloudant.ziose.core.MessageEnvelope
-import com.cloudant.ziose.core.PID
-import com.cloudant.ziose.core.Name
-import com.cloudant.ziose.core.NameOnNode
-import com.cloudant.ziose.core.Node
-import com.cloudant.ziose.core.Metrics
 import com.cloudant.ziose.macros.CheckEnv
 import zio._
 import zio.stream.ZStream
@@ -159,7 +160,8 @@ class OTPMailbox private (
   private val internalMailbox: Queue[MessageEnvelope],
   private val externalMailbox: Queue[MessageEnvelope]
 ) extends Mailbox
-    with OtpMboxListener {
+    with OtpMboxListener
+    with ZioSupport {
   private var isFinalized: AtomicBoolean = new AtomicBoolean(false)
 
   private var internalMailboxMeter  = meterRegistry.plainCounter("mailbox", "internal")
@@ -327,15 +329,13 @@ class OTPMailbox private (
     }
   }
 
-  def onMessageReceived = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(for {
-        message <- ZIO.succeed(readMessage)
-        _       <- externalMailbox.offer(message)
-        _       <- ZIO.succeed(externalMailboxMeter += 1)
-      } yield ())
-    }
-  }
+  def onMessageReceived = (
+    for {
+      message <- ZIO.succeed(readMessage)
+      _       <- externalMailbox.offer(message)
+      _       <- ZIO.succeed(externalMailboxMeter += 1)
+    } yield ()
+  ).unsafeRun
 
   @CheckEnv(System.getProperty("env"))
   def toStringMacro: List[String] = List(

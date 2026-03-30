@@ -1,14 +1,13 @@
 package com.cloudant.ziose.scalang
 
 import com.cloudant.ziose.core
-import core.Address
-import core.MessageEnvelope
+import core.{Address, MessageEnvelope, ZioSupport}
 import com.cloudant.ziose.macros.CheckEnv
 import zio._
 
 class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(implicit
   val runtime: Runtime[core.EngineWorker & core.Node]
-) {
+) extends ZioSupport {
   type RegName  = Symbol
   type NodeName = Symbol
 
@@ -72,29 +71,27 @@ class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(i
   def terminateNamedWith(name: String, terminator: ((core.Address, Adapter[_, _]) => UIO[Unit])) = for {
     resultChannel <- Queue.bounded[Boolean](1)
     _ <- ZIO.succeed(spawn(process => {
-      Unsafe.unsafe { implicit unsafe =>
-        runtime.unsafe.run(
-          for {
-            addressOption <- process.adapter
-              .lookUpName(name)
-              .repeatUntil(_.isDefined)
-              .map(_.get)
-              .timeout(3.seconds)
-            res <- addressOption match {
-              case Some(address) => {
-                terminator(address, process.adapter) *> process.adapter
-                  .lookUpName(name)
-                  .delay(100.milliseconds)
-                  .map((_ != Some(address)))
-                  .repeatUntil(_ == true)
-                  .timeout(3.seconds)
-              }
-              case None => ZIO.succeed(Some(false))
+      (
+        for {
+          addressOption <- process.adapter
+            .lookUpName(name)
+            .repeatUntil(_.isDefined)
+            .map(_.get)
+            .timeout(3.seconds)
+          res <- addressOption match {
+            case Some(address) => {
+              terminator(address, process.adapter) *> process.adapter
+                .lookUpName(name)
+                .delay(100.milliseconds)
+                .map((_ != Some(address)))
+                .repeatUntil(_ == true)
+                .timeout(3.seconds)
             }
-            _ <- resultChannel.offer(res.getOrElse(false))
-          } yield ()
-        )
-      }
+            case None => ZIO.succeed(Some(false))
+          }
+          _ <- resultChannel.offer(res.getOrElse(false))
+        } yield ()
+      ).unsafeRunWithCustomRuntime(runtime)
     }))
     isTerminated <- resultChannel.take
   } yield isTerminated
