@@ -73,13 +73,16 @@ object HandleInfoCBError {
   }
 }
 
-case class UnreachableError()                     extends Error
+case class UnreachableError() extends Error
+
 case class HandleCallUndefined(className: String) extends Error {
   override def toString: String = s"Error.${getClass.getSimpleName}($className) did not define a call handler"
 }
+
 case class HandleCastUndefined(className: String) extends Error {
   override def toString: String = s"Error.${getClass.getSimpleName}($className)did not define a cast handler"
 }
+
 case class HandleInfoUndefined(className: String) extends Error {
   override def toString: String = s"Error.${getClass.getSimpleName}($className) did not define a info handler"
 }
@@ -89,11 +92,12 @@ object ProcessLike {
   type NodeName = Symbol
 }
 
-trait ProcessLike[A <: Adapter[_, _]] extends core.Actor {
+trait ProcessLike[A <: Adapter[_, _]] extends core.Actor with ZioSupport {
   type RegName  = ProcessLike.RegName
   type NodeName = ProcessLike.NodeName
 
   val adapter: A
+
   def self: Address
 
   def toAddress(pid: Pid): Address = {
@@ -110,46 +114,38 @@ trait ProcessLike[A <: Adapter[_, _]] extends core.Actor {
   }
 
   def send(pid: Pid, msg: Any) = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(sendZIO(pid, msg))
-    }
+    sendZIO(pid, msg).unsafeRun
   }
 
   def send(name: RegName, msg: Any) = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(sendZIO(name, msg))
-    }
+    sendZIO(name, msg).unsafeRun
   }
 
   def send(dest: (RegName, NodeName), from: Pid, msg: Any) = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(sendZIO(dest, from, msg))
-    }
+    sendZIO(dest, from, msg).unsafeRun
   }
 
   def sendZIO(pid: Pid, msg: Any) = {
     val envelope = MessageEnvelope.makeSend(toAddress(pid), adapter.fromScala(msg), self)
     adapter.send(envelope)
   }
+
   def sendZIO(name: RegName, msg: Any) = {
     val envelope = MessageEnvelope.makeSend(toAddress(name), adapter.fromScala(msg), self)
     adapter.send(envelope)
   }
+
   def sendZIO(dest: (RegName, NodeName), from: Pid, msg: Any) = {
     val envelope = MessageEnvelope.makeRegSend(from.fromScala, toAddress(dest), adapter.fromScala(msg), self)
     adapter.send(envelope)
   }
 
   def exit(pid: Pid, reason: Any) = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(exitZIO(pid, reason))
-    }
+    exitZIO(pid, reason).unsafeRun
   }
 
   def exit(name: RegName, reason: Any): UIO[Unit] = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(exitZIO(name, reason))
-    }
+    exitZIO(name, reason).unsafeRun
   }
 
   def exitZIO(pid: Pid, reason: Any) = {
@@ -157,6 +153,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends core.Actor {
     val envelope = MessageEnvelope.Exit(None, address, adapter.fromScala(reason), self)
     adapter.exit(envelope)
   }
+
   def exitZIO(name: RegName, reason: Any) = {
     val address  = Address.fromName(Codec.EAtom(name), self.workerId, self.workerNodeName)
     val envelope = MessageEnvelope.Exit(None, address, adapter.fromScala(reason), self)
@@ -164,6 +161,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends core.Actor {
   }
 
   def handleInit(): Unit
+
   def handleMessage(msg: Any): Unit
 
   // TODO: Fully evaluate the effect and return Unit
@@ -181,15 +179,11 @@ trait ProcessLike[A <: Adapter[_, _]] extends core.Actor {
   }
 
   def unlink(to: Pid): Unit = {
-    Unsafe.unsafe { implicit unsafe =>
-      adapter.runtime.unsafe.run(adapter.unlink(to.fromScala))
-    }
+    adapter.unlink(to.fromScala).unsafeRunWith(adapter.runtime)
   }
 
   def link(to: Pid): Unit = {
-    Unsafe.unsafe { implicit unsafe =>
-      adapter.runtime.unsafe.run(adapter.link(to.fromScala)).getOrThrow()
-    }
+    adapter.link(to.fromScala).unsafeRunAndGetOrThrowWith(adapter.runtime)
   }
 
   def monitorZIO(monitored: Any): ZIO[Node, _ <: Node.Error, Reference] = {
@@ -207,16 +201,12 @@ trait ProcessLike[A <: Adapter[_, _]] extends core.Actor {
   }
 
   def monitor(monitored: Any): Reference = {
-    Unsafe.unsafe { implicit unsafe =>
-      val rt = adapter.runtime.asInstanceOf[Runtime[core.Node]]
-      rt.unsafe.run[Node.Error, Reference](monitorZIO(monitored)).getOrThrow()
-    }
+    val rt: Runtime[Node] = adapter.runtime.asInstanceOf[Runtime[Node]]
+    monitorZIO(monitored).unsafeRunAndGetOrThrowWith(rt)
   }
 
-  def demonitor(ref: Reference) = {
-    Unsafe.unsafe { implicit unsafe =>
-      adapter.runtime.unsafe.run(adapter.demonitor(ref.fromScala))
-    }
+  def demonitor(ref: Reference): Unit = {
+    adapter.demonitor(ref.fromScala).unsafeRunWith(adapter.runtime)
   }
 }
 
@@ -262,9 +252,12 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
 
   implicit val process: Process = this
 
-  implicit def pid2sendable(pid: core.PID): PidSend            = new PidSend(pid, this)
-  implicit def pid2sendable(pid: Pid): PidSend                 = new PidSend(pid, this)
-  implicit def sym2sendable(to: Symbol): SymSend               = new SymSend(to, this)
+  implicit def pid2sendable(pid: core.PID): PidSend = new PidSend(pid, this)
+
+  implicit def pid2sendable(pid: Pid): PidSend = new PidSend(pid, this)
+
+  implicit def sym2sendable(to: Symbol): SymSend = new SymSend(to, this)
+
   implicit def dest2sendable(dest: (Symbol, Symbol)): DestSend = new DestSend(dest, self, this)
 
   private def sendEveryCommon(send: UIO[Unit], delay: Long) = {
@@ -320,7 +313,8 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
     ZIO.succeed(())
   }
 
-  override def handleInit()            = ()
+  override def handleInit() = ()
+
   override def handleMessage(msg: Any) = ()
 
   override def handleExit(from: Pid, msg: Any) = {
@@ -398,8 +392,11 @@ class DestSend(to: (Symbol, Symbol), from: Pid, proc: Process) {
   )
 }
 
-class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_, _]) extends Process()(adapter) {
-  def metricsRegistry      = adapter.node.metricsRegistry
+class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_, _])
+    extends Process()(adapter)
+    with ZioSupport {
+  def metricsRegistry = adapter.node.metricsRegistry
+
   val metrics              = MetricsGroup(getClass, metricsRegistry)
   val PING_TIMEOUT_IN_MSEC = 3000
 
@@ -550,20 +547,30 @@ class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_,
     }
   }
 
-  def ping(to: Pid): Boolean                   = Service.ping(to)
-  def ping(to: Pid, timeout: Long): Boolean    = Service.ping(to)
-  def ping(to: Symbol): Boolean                = Service.ping(to)
+  def ping(to: Pid): Boolean = Service.ping(to)
+
+  def ping(to: Pid, timeout: Long): Boolean = Service.ping(to)
+
+  def ping(to: Symbol): Boolean = Service.ping(to)
+
   def ping(to: Symbol, timeout: Long): Boolean = Service.ping(to, timeout)
 
-  def call(to: Pid, msg: Any): Any                                = Service.call(to, msg)
-  def call(to: Pid, msg: Any, timeout: Long): Any                 = Service.call(to, msg, timeout)
-  def call(to: Symbol, msg: Any): Any                             = Service.call(to, msg)
-  def call(to: Symbol, msg: Any, timeout: Long): Any              = Service.call(to, msg, timeout)
-  def call(to: (RegName, NodeName), msg: Any): Any                = Service.call(to, msg)
+  def call(to: Pid, msg: Any): Any = Service.call(to, msg)
+
+  def call(to: Pid, msg: Any, timeout: Long): Any = Service.call(to, msg, timeout)
+
+  def call(to: Symbol, msg: Any): Any = Service.call(to, msg)
+
+  def call(to: Symbol, msg: Any, timeout: Long): Any = Service.call(to, msg, timeout)
+
+  def call(to: (RegName, NodeName), msg: Any): Any = Service.call(to, msg)
+
   def call(to: (RegName, NodeName), msg: Any, timeout: Long): Any = Service.call(to, msg, timeout)
 
-  def cast(to: Pid, msg: Any)                 = Service.cast(to, msg)
-  def cast(to: Symbol, msg: Any)              = Service.cast(to, msg)
+  def cast(to: Pid, msg: Any) = Service.cast(to, msg)
+
+  def cast(to: Symbol, msg: Any) = Service.cast(to, msg)
+
   def cast(to: (RegName, NodeName), msg: Any) = Service.cast(to, msg)
 
   @CheckEnv(System.getProperty("env"))
@@ -576,7 +583,7 @@ class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_,
   )
 }
 
-object Service {
+object Service extends ZioSupport {
   val PING_TIMEOUT_IN_MSEC = 3000
 
   type RegName  = Symbol
@@ -614,28 +621,35 @@ object Service {
   }
 
   def call(to: core.Address, msg: Any)(implicit adapter: Adapter[_, _]): Any = {
-    val result = Unsafe.unsafe { implicit unsafe =>
-      val rt = adapter.runtime.asInstanceOf[Runtime[core.Node]]
-      rt.unsafe.run(callZIO(to, msg))
+    val rt: Runtime[Node]                                  = adapter.runtime.asInstanceOf[Runtime[Node]]
+    val result: Exit[Node.Error, MessageEnvelope.Response] = {
+      callZIO(to, msg).unsafeRunWith(rt)
     }
     replyFromCall(result)
   }
+
   def call(to: core.Address, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = {
-    val result = Unsafe.unsafe { implicit unsafe =>
-      val rt = adapter.runtime.asInstanceOf[Runtime[core.Node]]
-      rt.unsafe.run(callZIO(to, msg, Some(Duration.fromMillis(timeout))))
+    val rt: Runtime[Node]                                  = adapter.runtime.asInstanceOf[Runtime[Node]]
+    val result: Exit[Node.Error, MessageEnvelope.Response] = {
+      callZIO(to, msg, Some(Duration.fromMillis(timeout))).unsafeRunWith(rt)
     }
     replyFromCall(result)
   }
-  def call(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Any                = call(toAddress(to), msg)
+
+  def call(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Any = call(toAddress(to), msg)
+
   def call(to: Pid, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = call(toAddress(to), msg, timeout)
-  def call(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Any             = call(toAddress(to), msg)
+
+  def call(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Any = call(toAddress(to), msg)
+
   def call(to: Symbol, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = {
     call(toAddress(to), msg, timeout)
   }
+
   def call(to: (ProcessLike.RegName, ProcessLike.NodeName), msg: Any)(implicit adapter: Adapter[_, _]): Any = {
     call(toAddress(to), msg)
   }
+
   def call(to: (ProcessLike.RegName, ProcessLike.NodeName), msg: Any, timeout: Long)(implicit
     adapter: Adapter[_, _]
   ): Any = {
@@ -661,13 +675,14 @@ object Service {
   }
 
   def cast(to: core.Address, msg: Any)(implicit adapter: Adapter[_, _]): Unit = {
-    val result = Unsafe.unsafe { implicit unsafe =>
-      val rt = adapter.runtime.asInstanceOf[Runtime[core.Node]]
-      rt.unsafe.run(castZIO(to, msg))
-    }
+    val rt = adapter.runtime.asInstanceOf[Runtime[Node]]
+    castZIO(to, msg).unsafeRunWith(rt)
   }
-  def cast(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Unit    = cast(toAddress(to), msg)
+
+  def cast(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Unit = cast(toAddress(to), msg)
+
   def cast(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Unit = cast(toAddress(to), msg)
+
   def cast(to: (ProcessLike.RegName, ProcessLike.NodeName), msg: Any)(implicit adapter: Adapter[_, _]): Unit = {
     cast(toAddress(to), msg)
   }
@@ -697,12 +712,15 @@ object Service {
   def ping(to: Pid)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), PING_TIMEOUT_IN_MSEC) == Symbol("pong")
   }
+
   def ping(to: Pid, timeout: Long)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), timeout) == Symbol("pong")
   }
+
   def ping(to: Symbol)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), PING_TIMEOUT_IN_MSEC) == Symbol("pong")
   }
+
   def ping(to: Symbol, timeout: Long)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), timeout) == Symbol("pong")
   }
@@ -718,8 +736,6 @@ object Service {
   }
 
   def reply[P <: Process](caller: (Pid, Any), reply: Any)(implicit process: P): Unit = {
-    Unsafe.unsafe { implicit unsafe =>
-      Runtime.default.unsafe.run(replyZIO(caller, reply))
-    }
+    replyZIO(caller, reply).unsafeRun
   }
 }

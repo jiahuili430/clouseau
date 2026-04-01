@@ -1,17 +1,18 @@
 package com.cloudant.ziose.clouseau
 
+import com.cloudant.ziose.core.ZioSupport
 import com.cloudant.ziose.scalang.Adapter
-import zio.{Cause, Runtime, LogLevel, Trace, ZIO, ZLayer, ZLogger, UIO, Unsafe, Duration}
+import zio.{Cause, Duration, Fiber, LogLevel, Runtime, Trace, UIO, ZIO, ZLayer, ZLogger}
 import zio.ZIO.{logDebug, logError, logErrorCause, logInfo, logWarning, logWarningCause}
 import zio.logging.{
-  loggerName,
-  consoleLogger,
-  consoleJsonLogger,
   ConsoleLoggerConfig,
+  FilteredLogger,
   LogFilter,
   LogGroup,
   LoggerNameExtractor,
-  FilteredLogger
+  consoleJsonLogger,
+  consoleLogger,
+  loggerName
 }
 import zio.logging.LogFormat._
 import zio.logging.slf4j.bridge.Slf4jBridge
@@ -103,20 +104,20 @@ object LoggerFactory {
         log(logWarningCause(msg, Cause.die(e)) @@ loggerName(id))
       }
     }
-
     def error(msg: => String)(implicit adapter: Adapter[_, _], trace: Trace): Unit = {
       if (LogLevel.Error >= adapter.logLevel) {
         log(logError(msg) @@ loggerName(id))
       }
     }
+
     def error(msg: => String, e: Throwable)(implicit adapter: Adapter[_, _], trace: Trace): Unit = {
       if (LogLevel.Error >= adapter.logLevel) {
         log(logErrorCause(msg, Cause.die(e)) @@ loggerName(id))
       }
     }
 
-    def log(event: UIO[Unit])(implicit adapter: Adapter[_, _]): Unit = {
-      Unsafe.unsafe(implicit u => adapter.runtime.unsafe.run(event.timeout(Duration.fromSeconds(10)).forkDaemon))
+    def log(event: UIO[Unit])(implicit adapter: Adapter[_, _]): UIO[Fiber.Runtime[Nothing, Option[Unit]]] = {
+      event.timeout(Duration.fromSeconds(10)).unsafeRunWith(adapter.runtime).forkDaemon
     }
   }
 
