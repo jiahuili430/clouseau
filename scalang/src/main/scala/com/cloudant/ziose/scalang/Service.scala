@@ -4,7 +4,7 @@ import com.cloudant.ziose.core
 import com.cloudant.ziose.macros.CheckEnv
 import core.Codec.{EAtom, EPid, ERef, ETerm, ETuple}
 import core.{Actor, ActorCallback, ActorResult, Address, MessageEnvelope, Node, ProcessContext, ZioSupport}
-import zio.{Cause, Duration, Exit, Runtime, Schedule, Task, Trace, UIO, ZIO}
+import zio.{Cause, Duration, Exit, Runtime, Schedule, Task, Trace, UIO, Unsafe, ZIO}
 
 import java.util.concurrent.TimeUnit
 import scala.util.{Failure, Success, Try}
@@ -63,12 +63,15 @@ object HandleInfoCBError {
 }
 
 case class UnreachableError() extends Error
+
 case class HandleCallUndefined(className: String) extends Error {
   override def toString: String = s"Error.${getClass.getSimpleName}($className) did not define a call handler"
 }
+
 case class HandleCastUndefined(className: String) extends Error {
   override def toString: String = s"Error.${getClass.getSimpleName}($className)did not define a cast handler"
 }
+
 case class HandleInfoUndefined(className: String) extends Error {
   override def toString: String = s"Error.${getClass.getSimpleName}($className) did not define a info handler"
 }
@@ -83,6 +86,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends Actor with ZioSupport {
   type NodeName = ProcessLike.NodeName
 
   val adapter: A
+
   def self: Address
 
   def toAddress(pid: Pid): Address = {
@@ -114,10 +118,12 @@ trait ProcessLike[A <: Adapter[_, _]] extends Actor with ZioSupport {
     val envelope = MessageEnvelope.makeSend(toAddress(pid), adapter.fromScala(msg), self)
     adapter.send(envelope)
   }
+
   def sendZIO(name: RegName, msg: Any): UIO[Unit] = {
     val envelope = MessageEnvelope.makeSend(toAddress(name), adapter.fromScala(msg), self)
     adapter.send(envelope)
   }
+
   def sendZIO(dest: (RegName, NodeName), from: Pid, msg: Any): UIO[Unit] = {
     val envelope = MessageEnvelope.makeRegSend(from.fromScala, toAddress(dest), adapter.fromScala(msg), self)
     adapter.send(envelope)
@@ -136,6 +142,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends Actor with ZioSupport {
     val envelope = MessageEnvelope.Exit(None, address, adapter.fromScala(reason), self)
     adapter.exit(envelope)
   }
+
   private def exitZIO(name: RegName, reason: Any): UIO[Unit] = {
     val address  = Address.fromName(EAtom(name), self.workerId, self.workerNodeName)
     val envelope = MessageEnvelope.Exit(None, address, adapter.fromScala(reason), self)
@@ -143,6 +150,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends Actor with ZioSupport {
   }
 
   def handleInit(): Unit
+
   def handleMessage(msg: Any): Unit
 
   // TODO: Fully evaluate the effect and return Unit
@@ -233,26 +241,33 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
 
   implicit val process: Process = this
 
-  implicit def pid2sendable(pid: core.PID): PidSend            = new PidSend(pid, this)
-  implicit def pid2sendable(pid: Pid): PidSend                 = new PidSend(pid, this)
-  implicit def sym2sendable(to: Symbol): SymSend               = new SymSend(to, this)
+  implicit def pid2sendable(pid: core.PID): PidSend = new PidSend(pid, this)
+
+  implicit def pid2sendable(pid: Pid): PidSend = new PidSend(pid, this)
+
+  implicit def sym2sendable(to: Symbol): SymSend = new SymSend(to, this)
+
   implicit def dest2sendable(dest: (Symbol, Symbol)): DestSend = new DestSend(dest, self, this)
 
   def sendEvery(pid: Pid, msg: Any, delay: Long) = {
     val interval: Duration = Duration.fromMillis(delay)
-    adapter.forkScoped(sendZIO(pid, msg).schedule(Schedule.spaced(interval))).unsafeRunGetOrThrowFiberFailure
+    adapter.forkScoped(sendZIO(pid, msg).schedule(Schedule.spaced(interval))).unsafeRun.getOrThrowFiberFailure()(Unsafe)
   }
 
   def sendEvery(name: Symbol, msg: Any, delay: Long) = {
     val interval: Duration = Duration.fromMillis(delay)
-    adapter.forkScoped(sendZIO(name, msg).schedule(Schedule.spaced(interval))).unsafeRunGetOrThrowFiberFailure
+    adapter
+      .forkScoped(sendZIO(name, msg).schedule(Schedule.spaced(interval)))
+      .unsafeRun
+      .getOrThrowFiberFailure()(Unsafe)
   }
 
   def sendEvery(dest: (RegName, NodeName), msg: Any, delay: Long) = {
     val interval: Duration = Duration.fromMillis(delay)
     adapter
       .forkScoped(sendZIO(dest, Pid.toScala(self.pid), msg).schedule(Schedule.spaced(interval)))
-      .unsafeRunGetOrThrowFiberFailure
+      .unsafeRun
+      .getOrThrowFiberFailure()(Unsafe)
   }
 
   def sendAfter(pid: Pid, msg: Any, delay: Long) = {
@@ -262,6 +277,7 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
     val duration = Duration(delay, TimeUnit.MILLISECONDS)
     effect.delay(duration)
   }
+
   def sendAfter(name: Symbol, msg: Any, delay: Long) = {
     val effect = for {
       _ <- sendZIO(name, msg)
@@ -269,6 +285,7 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
     val duration = Duration(delay, TimeUnit.MILLISECONDS)
     effect.delay(duration)
   }
+
   def sendAfter(dest: (RegName, NodeName), msg: Any, delay: Long) = {
     val effect = for {
       _ <- sendZIO(dest, Pid.toScala(self.pid), msg)
@@ -295,7 +312,8 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
     ZIO.logError(s"${getClass.toString} did not define a onTermination function.").unsafeRun
   }
 
-  override def handleInit()            = ()
+  override def handleInit() = ()
+
   override def handleMessage(msg: Any) = ()
 
   override def handleExit(from: Pid, msg: Any) = {
@@ -376,7 +394,8 @@ class DestSend(to: (Symbol, Symbol), from: Pid, proc: Process) {
 class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_, _])
     extends Process()(adapter)
     with ZioSupport {
-  def metricsRegistry      = adapter.node.metricsRegistry
+  def metricsRegistry = adapter.node.metricsRegistry
+
   val metrics              = MetricsGroup(getClass, metricsRegistry)
   val PING_TIMEOUT_IN_MSEC = 3000
 
@@ -527,20 +546,30 @@ class Service[A <: Product](ctx: ServiceContext[A])(implicit adapter: Adapter[_,
     }
   }
 
-  def ping(to: Pid): Boolean                   = Service.ping(to)
-  def ping(to: Pid, timeout: Long): Boolean    = Service.ping(to)
-  def ping(to: Symbol): Boolean                = Service.ping(to)
+  def ping(to: Pid): Boolean = Service.ping(to)
+
+  def ping(to: Pid, timeout: Long): Boolean = Service.ping(to)
+
+  def ping(to: Symbol): Boolean = Service.ping(to)
+
   def ping(to: Symbol, timeout: Long): Boolean = Service.ping(to, timeout)
 
-  def call(to: Pid, msg: Any): Any                                = Service.call(to, msg)
-  def call(to: Pid, msg: Any, timeout: Long): Any                 = Service.call(to, msg, timeout)
-  def call(to: Symbol, msg: Any): Any                             = Service.call(to, msg)
-  def call(to: Symbol, msg: Any, timeout: Long): Any              = Service.call(to, msg, timeout)
-  def call(to: (RegName, NodeName), msg: Any): Any                = Service.call(to, msg)
+  def call(to: Pid, msg: Any): Any = Service.call(to, msg)
+
+  def call(to: Pid, msg: Any, timeout: Long): Any = Service.call(to, msg, timeout)
+
+  def call(to: Symbol, msg: Any): Any = Service.call(to, msg)
+
+  def call(to: Symbol, msg: Any, timeout: Long): Any = Service.call(to, msg, timeout)
+
+  def call(to: (RegName, NodeName), msg: Any): Any = Service.call(to, msg)
+
   def call(to: (RegName, NodeName), msg: Any, timeout: Long): Any = Service.call(to, msg, timeout)
 
-  def cast(to: Pid, msg: Any)                 = Service.cast(to, msg)
-  def cast(to: Symbol, msg: Any)              = Service.cast(to, msg)
+  def cast(to: Pid, msg: Any) = Service.cast(to, msg)
+
+  def cast(to: Symbol, msg: Any) = Service.cast(to, msg)
+
   def cast(to: (RegName, NodeName), msg: Any) = Service.cast(to, msg)
 
   @CheckEnv(System.getProperty("env"))
@@ -597,6 +626,7 @@ object Service extends ZioSupport {
     }
     replyFromCall(result)
   }
+
   def call(to: Address, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = {
     val rt: Runtime[Node] = adapter.runtime.asInstanceOf[Runtime[Node]]
     val result: Exit[Node.Error, MessageEnvelope.Response] = {
@@ -604,15 +634,21 @@ object Service extends ZioSupport {
     }
     replyFromCall(result)
   }
-  def call(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Any                = call(toAddress(to), msg)
+
+  def call(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Any = call(toAddress(to), msg)
+
   def call(to: Pid, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = call(toAddress(to), msg, timeout)
-  def call(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Any             = call(toAddress(to), msg)
+
+  def call(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Any = call(toAddress(to), msg)
+
   def call(to: Symbol, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = {
     call(toAddress(to), msg, timeout)
   }
+
   def call(to: (ProcessLike.RegName, ProcessLike.NodeName), msg: Any)(implicit adapter: Adapter[_, _]): Any = {
     call(toAddress(to), msg)
   }
+
   def call(to: (ProcessLike.RegName, ProcessLike.NodeName), msg: Any, timeout: Long)(implicit
     adapter: Adapter[_, _]
   ): Any = {
@@ -641,8 +677,11 @@ object Service extends ZioSupport {
     val rt = adapter.runtime.asInstanceOf[Runtime[Node]]
     castZIO(to, msg).unsafeRunWith(rt)
   }
-  def cast(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Unit    = cast(toAddress(to), msg)
+
+  def cast(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Unit = cast(toAddress(to), msg)
+
   def cast(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Unit = cast(toAddress(to), msg)
+
   def cast(to: (ProcessLike.RegName, ProcessLike.NodeName), msg: Any)(implicit adapter: Adapter[_, _]): Unit = {
     cast(toAddress(to), msg)
   }
@@ -672,12 +711,15 @@ object Service extends ZioSupport {
   def ping(to: Pid)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), PING_TIMEOUT_IN_MSEC) == Symbol("pong")
   }
+
   def ping(to: Pid, timeout: Long)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), timeout) == Symbol("pong")
   }
+
   def ping(to: Symbol)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), PING_TIMEOUT_IN_MSEC) == Symbol("pong")
   }
+
   def ping(to: Symbol, timeout: Long)(implicit adapter: Adapter[_, _]): Boolean = {
     call(to, Symbol("ping"), timeout) == Symbol("pong")
   }

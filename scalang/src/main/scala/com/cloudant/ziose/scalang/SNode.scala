@@ -32,21 +32,27 @@ class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(i
   def spawnService[TS <: Service[A] & Actor: Tag, A <: Product](builder: ActorBuilder.Sealed[TS])(implicit
     adapter: Adapter[_, _]
   ): Result[Node.Error, AddressableActor[TS, ProcessContext]] = ???
+
   def spawnService[TS <: Service[A] & Actor: Tag, A <: Product](
     builder: ActorBuilder.Sealed[TS],
     reentrant: Boolean
   )(implicit adapter: Adapter[_, _]): Result[Node.Error, AddressableActor[TS, ProcessContext]] = ???
+
   def spawnServiceZIO[TS <: Service[A] & Actor: Tag, A <: Product](
     builder: ActorBuilder.Sealed[TS]
   ): ZIO[EngineWorker & Node & ActorFactory, Node.Error, AddressableActor[_, _]] = ???
+
   def spawnServiceZIO[TS <: Service[A] & Actor: Tag, A <: Product](
     builder: ActorBuilder.Sealed[TS],
     reentrant: Boolean
   ): ZIO[EngineWorker & Node & ActorFactory, Node.Error, AddressableActor[_, _]] = ???
 
-  def spawn[T <: Process](): Pid                = ???
-  def spawn(fun: Process => Unit): Pid          = ???
+  def spawn[T <: Process](): Pid = ???
+
+  def spawn(fun: Process => Unit): Pid = ???
+
   def spawn[T <: Process](regName: String): Pid = ???
+
   def spawn[T <: Process](regName: Symbol): Pid = ???
 
   // assume same worker
@@ -56,6 +62,7 @@ class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(i
     def makeAddress(pid: Pid) = {
       Address.fromPid(pid.fromScala, adapter.workerId, adapter.workerNodeName)
     }
+
     if (from == to) {
       // Trying to link a pid to itself
       return false
@@ -70,7 +77,7 @@ class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(i
       case (false, false) => return false
     }
 
-    adapter.link(msg).unsafeRunAdapter(adapter)
+    adapter.link(msg).unsafeRunWith(adapter.runtime)
     true
   }
 

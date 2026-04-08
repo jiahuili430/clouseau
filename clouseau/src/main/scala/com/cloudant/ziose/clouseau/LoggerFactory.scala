@@ -100,6 +100,7 @@ object LoggerFactory {
         log(logWarning(msg) @@ loggerName(id))
       }
     }
+
     def warn(msg: => String, e: Throwable)(implicit adapter: Adapter[_, _]): Unit = {
       if (LogLevel.Warning >= adapter.logLevel) {
         log(logWarningCause(msg, Cause.die(e)) @@ loggerName(id))
@@ -111,6 +112,7 @@ object LoggerFactory {
         log(logError(msg) @@ loggerName(id))
       }
     }
+
     def error(msg: => String, e: Throwable)(implicit adapter: Adapter[_, _], trace: Trace): Unit = {
       if (LogLevel.Error >= adapter.logLevel) {
         log(logErrorCause(msg, Cause.die(e)) @@ loggerName(id))
@@ -118,7 +120,7 @@ object LoggerFactory {
     }
 
     def log(event: UIO[Unit])(implicit adapter: Adapter[_, _]): UIO[Fiber.Runtime[Nothing, Option[Unit]]] = {
-      event.timeout(Duration.fromSeconds(10)).unsafeRunAdapterForkDaemon
+      event.timeout(Duration.fromSeconds(10)).unsafeRunAdapter.forkDaemon
     }
   }
 

@@ -2,7 +2,8 @@ package com.cloudant.ziose.core
 
 import zio._
 
-sealed trait EngineWorkerError            extends Exception
+sealed trait EngineWorkerError extends Exception
+
 case class NameAlreadyInUse(name: String) extends EngineWorkerError
 
 trait EngineWorker extends ForwardWithId[Engine.WorkerId, MessageEnvelope] with ZioSupport {
@@ -11,17 +12,25 @@ trait EngineWorker extends ForwardWithId[Engine.WorkerId, MessageEnvelope] with 
   val nodeName: Symbol
   val engineId: Engine.EngineId
   val exchange: EngineWorkerExchange
+
   def acquire: UIO[Unit]
+
   def release: UIO[Unit]
+
   def register(entity: ForwardWithId[Address, MessageEnvelope]): UIO[Unit] = exchange.add(entity)
+
   def unregister(addr: Address): UIO[Option[ForwardWithId[Address, MessageEnvelope]]] = {
     exchange.remove(addr)
   }
+
   def spawn[A <: Actor](
     builder: ActorBuilder.Sealed[A]
   ): ZIO[Node & EngineWorker, _ <: Node.Error, AddressableActor[A, _ <: ProcessContext]]
+
   def kind: URIO[EngineWorker, String]
-  def shutdown(implicit trace: Trace): UIO[Unit]                         = exchange.shutdown
+
+  def shutdown(implicit trace: Trace): UIO[Unit] = exchange.shutdown
+
   def forward(msg: MessageEnvelope)(implicit trace: Trace): UIO[Boolean] = exchange.forward(msg)
 
   def processInfoZIO[A <: Actor](addr: Address): UIO[Option[ProcessInfo]] = {
@@ -29,7 +38,7 @@ trait EngineWorker extends ForwardWithId[Engine.WorkerId, MessageEnvelope] with 
   }
 
   def processInfo[A <: Actor](addr: Address): Option[ProcessInfo] = {
-    processInfoZIO(addr).unsafeRunGetOrThrowFiberFailure
+    processInfoZIO(addr).unsafeRun.getOrThrowFiberFailure()(Unsafe)
   }
 
   def actorMetersZIO[A <: Actor](addr: Address): UIO[Option[List[ActorMeterInfo]]] = {
@@ -37,7 +46,7 @@ trait EngineWorker extends ForwardWithId[Engine.WorkerId, MessageEnvelope] with 
   }
 
   def actorMeters[A <: Actor](addr: Address): Option[List[ActorMeterInfo]] = {
-    actorMetersZIO(addr).unsafeRunGetOrThrowFiberFailure
+    actorMetersZIO(addr).unsafeRun.getOrThrowFiberFailure()(Unsafe)
   }
 
   def processInfoTopKZIO[A <: Actor](
@@ -55,7 +64,7 @@ trait EngineWorker extends ForwardWithId[Engine.WorkerId, MessageEnvelope] with 
   }
 
   def processInfoTopK(valueFun: ProcessInfo => Int): List[ProcessInfo] = {
-    processInfoTopKZIO(valueFun).unsafeRunGetOrThrowFiberFailure
+    processInfoTopKZIO(valueFun).unsafeRun.getOrThrowFiberFailure()(Unsafe)
   }
 
   def actorMeterInfoTopKZIO[A <: Actor](
@@ -75,7 +84,7 @@ trait EngineWorker extends ForwardWithId[Engine.WorkerId, MessageEnvelope] with 
   }
 
   def actorMeterInfoTopK(query: ActorMeterInfo.Query[Double]): List[ActorMeterInfo] = {
-    actorMeterInfoTopKZIO(query).unsafeRunGetOrThrowFiberFailure
+    actorMeterInfoTopKZIO(query).unsafeRun.getOrThrowFiberFailure()(Unsafe)
   }
 }
 
@@ -85,6 +94,7 @@ object EngineWorker {
   ): ZIO[EngineWorker & Node, _ <: Node.Error, AddressableActor[A, _ <: ProcessContext]] = {
     ZIO.serviceWithZIO[EngineWorker](_.spawn(builder))
   }
+
   def kind[C <: ProcessContext: Tag]: URIO[EngineWorker, String] = {
     ZIO.serviceWithZIO[EngineWorker](_.kind)
   }

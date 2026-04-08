@@ -1,14 +1,16 @@
 package com.cloudant.ziose.scalang
 
 import scala.collection.JavaConverters._
-
 import zio.metrics.Metric
 import zio.metrics.MetricState
 import com.cloudant.ziose.core.ZioSupport
 import com.cloudant.ziose.macros.CheckEnv
 import com.codahale.metrics.MetricFilter
+
 import scala.collection.immutable.HashMap
 import com.codahale.metrics
+import zio.Unsafe
+
 import java.util.concurrent.Callable
 
 /**
@@ -26,9 +28,9 @@ case class MetricsGroup(klass: Class[_], metricsRegistry: ScalangMeterRegistry) 
       for {
         _ <- zioCounter.update(delta)
       } yield ()
-    ).unsafeRunGetOrThrowFiberFailure
-    def -=(delta: Int): Unit       = zioCounter.update(-delta.abs).unsafeRunGetOrThrowFiberFailure
-    def count: MetricState.Counter = zioCounter.value.unsafeRunGetOrThrowFiberFailure
+    ).unsafeRun.getOrThrowFiberFailure()(Unsafe)
+    def -=(delta: Int): Unit       = zioCounter.update(-delta.abs).unsafeRun.getOrThrowFiberFailure()(Unsafe)
+    def count: MetricState.Counter = zioCounter.value.unsafeRun.getOrThrowFiberFailure()(Unsafe)
     def clear                      = zioCounter.fromConst(0)
 
     def get: Metric.Counter[Long] = this.zioCounter
@@ -47,7 +49,7 @@ case class MetricsGroup(klass: Class[_], metricsRegistry: ScalangMeterRegistry) 
   def counter(name: String): Counter = {
     val zioCounter = Metric.counter(constructName(name))
     // register to JMX
-    zioCounter.update(0).unsafeRunGetOrThrowFiberFailure
+    zioCounter.update(0).unsafeRun.getOrThrowFiberFailure()(Unsafe)
     new Counter(zioCounter)
   }
 
