@@ -593,14 +593,14 @@ object Service extends ZioSupport {
   def call(to: Address, msg: Any)(implicit adapter: Adapter[_, _]): Any = {
     val rt: Runtime[Node] = adapter.runtime.asInstanceOf[Runtime[Node]]
     val result: Exit[Node.Error, MessageEnvelope.Response] = {
-      callZIO(to, msg).unsafeRunCustomRuntime(rt)
+      callZIO(to, msg).unsafeRunWith(rt)
     }
     replyFromCall(result)
   }
   def call(to: Address, msg: Any, timeout: Long)(implicit adapter: Adapter[_, _]): Any = {
     val rt: Runtime[Node] = adapter.runtime.asInstanceOf[Runtime[Node]]
     val result: Exit[Node.Error, MessageEnvelope.Response] = {
-      callZIO(to, msg, Some(Duration.fromMillis(timeout))).unsafeRunCustomRuntime(rt)
+      callZIO(to, msg, Some(Duration.fromMillis(timeout))).unsafeRunWith(rt)
     }
     replyFromCall(result)
   }
@@ -639,7 +639,7 @@ object Service extends ZioSupport {
 
   def cast(to: Address, msg: Any)(implicit adapter: Adapter[_, _]): Exit[Node.Error, Unit] = {
     val rt = adapter.runtime.asInstanceOf[Runtime[Node]]
-    castZIO(to, msg).unsafeRunCustomRuntime(rt)
+    castZIO(to, msg).unsafeRunWith(rt)
   }
   def cast(to: Pid, msg: Any)(implicit adapter: Adapter[_, _]): Unit    = cast(toAddress(to), msg)
   def cast(to: Symbol, msg: Any)(implicit adapter: Adapter[_, _]): Unit = cast(toAddress(to), msg)
