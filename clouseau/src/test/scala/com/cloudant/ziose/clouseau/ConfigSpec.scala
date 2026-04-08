@@ -23,11 +23,7 @@ class ConfigSpec extends JUnitRunnableSpec {
        |      domain: 127.0.0.1
        |      cookie: cookie
        |    }
-       |    capacity: {
-       |      ${key}: ${value}
-       |    }
        |  }
-       |
        |]
        |""".stripMargin
   }
