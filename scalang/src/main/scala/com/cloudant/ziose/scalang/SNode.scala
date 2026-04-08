@@ -89,7 +89,7 @@ class SNode(val metricsRegistry: ScalangMeterRegistry, val logLevel: LogLevel)(i
           case None => ZIO.succeed(Some(false))
         }
         _ <- resultChannel.offer(res.getOrElse(false))
-      } yield ()).unsafeRunCustomRuntime(runtime)
+      } yield ()).unsafeRunWith(runtime)
     }))
     isTerminated <- resultChannel.take
   } yield isTerminated

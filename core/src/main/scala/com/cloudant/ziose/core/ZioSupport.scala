@@ -32,7 +32,7 @@ trait ZioSupport {
   }
 
   implicit final class ZioOpsCustomRuntime[R, E <: Throwable, A](self: ZIO[R, E, A]) {
-    def unsafeRunCustomRuntime(runtime: Runtime[R]): Exit[E, A] = {
+    def unsafeRunWith(runtime: Runtime[R]): Exit[E, A] = {
       Unsafe.unsafe(implicit u => runtime.unsafe.run(self))
     }
 
