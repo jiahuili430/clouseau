@@ -168,7 +168,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends Actor with ZioSupport {
   }
 
   def unlink(to: Pid): UIO[Unit] = {
-    adapter.unlink(to.fromScala).unsafeRunAdapter(adapter)
+    adapter.unlink(to.fromScala).unsafeRunWith(adapter.runtime)
   }
 
   def link(to: Pid): Unit = {
@@ -195,7 +195,7 @@ trait ProcessLike[A <: Adapter[_, _]] extends Actor with ZioSupport {
   }
 
   def demonitor(ref: Reference): UIO[Unit] = {
-    adapter.demonitor(ref.fromScala).unsafeRunAdapter(adapter)
+    adapter.demonitor(ref.fromScala).unsafeRunWith(adapter.runtime)
   }
 }
 
