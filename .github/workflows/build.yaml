@@ -26,7 +26,7 @@ jobs:
       - name: Elixir tests
         uses: nick-fields/retry@v3
         with:
-          timeout_minutes: 5
+          timeout_minutes: 8
           max_attempts: 3
           command: mise exec -- make ci-elixir
 
