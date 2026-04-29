@@ -793,7 +793,9 @@ class ClouseauNodeSpec extends JUnitRunnableSpec {
           logHistory = LogHistory(output)
         } yield assertTrue(
           linkResult == Symbol("ok")
-        ) && assert(logHistory)(assertHasNoErrors) ?? "should not log any errors"
+        ) && assert(logHistory)(
+          assertHasNErrors(1)
+        ) ?? "should log MonitorService did not define a onTermination function."
       ),
       test("unlink")(
         for {

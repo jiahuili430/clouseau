@@ -317,7 +317,6 @@ class Process(implicit val adapter: Adapter[_, _]) extends ProcessLike[Adapter[_
 
   def onTermination[PContext <: ProcessContext](reason: ETerm, ctx: PContext): UIO[Unit] = {
     ZIO.logError(s"${getClass.toString} did not define a onTermination function.")
-    ZIO.succeed(())
   }
 
   override def handleInit()            = ()
