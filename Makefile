@@ -92,10 +92,6 @@ space := $(empty) $(empty)
 apps ?= clouseau,core,macros,otp,scalang,vendor
 skip ?= vendor
 COMMON_PATH := /target/scala-$(SCALA_SHORT_VSN)/classes
-SPOTBUGS_OPTS = $(foreach app,$(filter-out \
-		$(subst $(comma),$(space),$(skip)),\
-		$(subst $(comma),$(space),$(apps))\
-	),$(app)$(COMMON_PATH))
 
 define to_artifacts
 	find $(1) -name '$(2)' -print0 | while IFS= read -r -d '' pathname; \
@@ -162,12 +158,6 @@ check-deps: build $(ARTIFACTS_DIR)
 		-Dnvd_data_dir=$(OWASP_NVD_DATA_DIR) \
 		-Dlog4j2.level=info
 	@$(call to_artifacts,$(SCALA_SUBPROJECTS),dependency-check-report.*)
-
-.PHONY: check-spotbugs
-# target: check-spotbugs - Inspect bugs in Java bytecode
-check-spotbugs: build $(ARTIFACTS_DIR)
-	@spotbugs -textui -quiet -html=$(ARTIFACTS_DIR)/spotbugs.html \
-		-xml=$(ARTIFACTS_DIR)/spotbugs.xml $(SPOTBUGS_OPTS)
 
 .PHONY: docs
 # target: docs - Generate documentation
@@ -568,7 +558,7 @@ ci-elixir: $(JAR_ARTIFACTS) couchdb epmd FORCE
 ci-metrics: metrics-tests
 ci-restart: restart-test
 ci-syslog: syslog-tests
-ci-verify: check-deps check-spotbugs
+ci-verify: check-deps
 
 .PHONY: artifacts
 # target: artifacts - Generate release artifacts

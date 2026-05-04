@@ -1,0 +1,22 @@
+# mise configuration
+# See: https://mise.jdx.dev/configuration.html
+
+[env]
+_.path = ["./scripts", "./bin"]
+ERL_EPMD_ADDRESS = "127.0.0.1"
+GH_HOST = "github.com"
+
+[tools]
+java = "openjdk-21.0.2"
+scala = "2.13.18"
+erlang = "26.2.5.20"
+rebar = "3.27.0"
+coursier = "2.1.24"
+editorconfig-checker = "3.6.1"
+sbt = "1.12.9"
+yq = "4.53.2"
+github-cli = "2.91.0"
+bat = "0.26.0"
+elixir = "1.19.5-otp-26"
+python = "3.14.4"
+typst = "0.14.2"

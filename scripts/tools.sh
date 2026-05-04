@@ -1,4 +1,6 @@
 #!/bin/bash
+# todo: needs to be updated
+
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 BIN_DIR=${SELF_DIR}/../bin

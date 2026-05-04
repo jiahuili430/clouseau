@@ -1,3 +1,4 @@
+[//]: # (todo: needs to be updated)
 # Settings things up for `bash`
 
 There are two steps which need to be done to set up environment.
