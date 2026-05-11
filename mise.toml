@@ -8,20 +8,31 @@ GH_HOST = "github.com"
 
 [hooks]
 enter = "mise install"
+postinstall = """
+if [[ $MISE_INSTALLED_TOOLS == *"scalafmt"* ]]; then
+  NEW_VER=$(mise ls --json scalafmt | jq -r '.[-1].version')
+  if [[ $OSTYPE == "darwin"* ]]; then
+    sed -i "" "s/^version = .*/version = $NEW_VER/" .scalafmt.conf
+  else
+    sed -i "s/^version = .*/version = $NEW_VER/" .scalafmt.conf
+  fi
+  echo "Updated .scalafmt.conf to version $NEW_VER"
+fi
+"""
 
 [settings]
 experimental = true
 
 [tools]
-bat = "0.26.0"
+bat = "0.26.1"
 editorconfig-checker = "3.6.1"
-elixir = "1.19.5-otp-26"
-erlang = "26.2.5.20"
-github-cli = "2.91.0"
+elixir = "1.19.5-otp-27"
+erlang = "27.3.4.11"
+github-cli = "2.92.0"
 java = "openjdk-21.0.2"
-python = "3.14.4"
+python = "3.14.5"
 rebar = "3.27.0"
 sbt = "1.12.9"
 scala = "2.13.18"
-scalafmt = "3.11.0"
+scalafmt = "3.11.1"
 typst = "0.14.2"
