@@ -359,7 +359,6 @@ public class OtpNode extends OtpLocalNode {
             mboxes.remove(mbox);
             mbox.name = null;
             mbox.breakLinks(reason);
-            mbox.clearMonitors(reason);
         }
     }
 
@@ -571,16 +570,7 @@ public class OtpNode extends OtpLocalNode {
                 }
                 mbox = mboxes.get(name);
             } else {
-                final String name = m.getRecipientName();
-                if ((t == OtpMsg.monitorTag || t == OtpMsg.demonitorTag)
-                    && name != null && name.equals("net_kernel")) {
-                    return true;
-                }
-                if (name != null) {
-                    mbox = mboxes.get(name);
-                } else {
-                    mbox = mboxes.get(m.getRecipientPid());
-                }
+                mbox = mboxes.get(m.getRecipientPid());
             }
 
             if (mbox == null) {

@@ -19,11 +19,6 @@
  */
 package com.ericsson.otp.erlang;
 
-import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.Map;
-import java.util.Collections;
-
 /**
  * <p>
  * Provides a simple mechanism for exchanging messages with Erlang processes or
@@ -89,16 +84,7 @@ public class OtpMbox {
     GenericQueue queue;
     String name;
     Links links;
-    Set<OtpMboxListener> listeners;
     private long unlink_id;
-    /*
-     * In order to be able to demonitor we need to rememeber all monitor details.
-     */
-    Map<OtpErlangRef, Monitor> monitors = new ConcurrentHashMap<>();
-    /*
-     * In order to be able to notify everyone who monitors us we remember their pids.
-     */
-    Map<OtpErlangRef, OtpErlangPid> monitoredBy = new ConcurrentHashMap<>();
 
     // package constructor: called by OtpNode:createMbox(name)
     // to create a named mbox
@@ -109,7 +95,6 @@ public class OtpMbox {
         this.unlink_id = 1;
         queue = new GenericQueue();
         links = new Links(10);
-        listeners = Collections.newSetFromMap(new ConcurrentHashMap<>());
     }
 
     // package constructor: called by OtpNode:createMbox()
@@ -593,113 +578,6 @@ public class OtpMbox {
         }
     }
 
-    public OtpErlangRef monitor(final OtpErlangPid to)
-            throws OtpErlangExit, OtpErlangConnectionException {
-        final OtpErlangRef ref = home.createRef();
-        try {
-            final String node = to.node();
-            if (node.equals(home.node())) {
-                if (!home.deliver(new OtpMsg(OtpMsg.monitorTag, self, to, ref))) {
-                    throw new OtpErlangExit("noproc", to);
-                }
-            } else {
-                final OtpCookedConnection conn = home.getConnection(node);
-                if (conn != null) {
-                    conn.monitor(self, to, ref); // may throw 'noproc'
-                } else {
-                    throw new OtpErlangExit("noconnection", to);
-                }
-            }
-            monitors.put(ref, new Monitor(self, to, ref));
-        } catch (final OtpErlangExit e) {
-            throw e;
-        } catch (final Exception e) {
-            throw new OtpErlangConnectionException(e);
-        }
-        return ref;
-    }
-
-    public OtpErlangRef monitorNamed(final String aname) throws OtpErlangExit {
-        final OtpErlangRef ref = home.createRef();
-        return monitorNamed(aname, ref);
-    }
-
-    private OtpErlangRef monitorNamed(final String aname, final OtpErlangRef ref) throws OtpErlangExit {
-        if (!home.deliver(new OtpMsg(OtpMsg.monitorTag, self, aname, ref))) {
-            throw new OtpErlangExit("noproc");
-        }
-        monitors.put(ref, new Monitor(self, new OtpErlangAtom(aname), self.node(), ref));
-        return ref;
-    }
-
-    public OtpErlangRef monitorNamed(final String aname, final String node)
-            throws OtpErlangExit, OtpErlangConnectionException {
-        final OtpErlangRef ref = home.createRef();
-        try {
-            final String currentNode = home.node();
-            if (node.equals(currentNode)) {
-                monitorNamed(aname, ref);
-            } else if (node.indexOf('@', 0) < 0
-                       && node.equals(currentNode.substring(0,
-                               currentNode.indexOf('@', 0)))) {
-                monitorNamed(aname, ref); // may throw 'noproc'
-            } else {
-                final OtpCookedConnection conn = home.getConnection(node);
-                if (conn != null) {
-                    conn.monitorNamed(self, aname, ref);
-                    monitors.put(ref, new Monitor(self, new OtpErlangAtom(aname), node, ref));
-                } else {
-                    throw new OtpErlangExit("noconnection");
-                }
-            }
-        } catch (final OtpErlangExit e) {
-            throw e;
-        } catch (final Exception e) {
-            throw new OtpErlangConnectionException(e);
-        }
-        return ref;
-    }
-
-    public void demonitor(final OtpErlangRef ref) {
-        final Monitor m = monitors.get(ref);
-
-        if (m == null) {
-            return;
-        }
-
-        final OtpErlangObject dest = m.remote();
-        final String node = m.node();
-
-        try {
-            if (dest instanceof OtpErlangPid) {
-                final OtpErlangPid to = (OtpErlangPid) dest;
-                if (node.equals(home.node())) {
-                    home.deliver(new OtpMsg(OtpMsg.demonitorTag, self, to, ref));
-                } else {
-                    final OtpCookedConnection conn = home.getConnection(node);
-                    if (conn == null) {
-                        return;
-                    }
-                    conn.demonitor(self, to, ref);
-                }
-            } else
-            if (dest instanceof OtpErlangAtom) {
-                final OtpErlangAtom toName = (OtpErlangAtom) dest;
-                if (node.equals(home.node())) {
-                    home.deliver(new OtpMsg(OtpMsg.demonitorTag, self, toName.atomValue(), ref));
-                } else {
-                    final OtpCookedConnection conn = home.getConnection(node);
-                    if (conn == null) {
-                        return;
-                    }
-                    conn.demonitorNamed(self, toName.atomValue(), ref);
-                }
-            }
-            monitors.remove(ref);
-        } catch (final Exception e) {
-        }
-    }
-
     /**
      * <p>
      * Get information about all processes and/or mail boxes currently
@@ -828,12 +706,6 @@ public class OtpMbox {
         return self.hashCode();
     }
 
-    private void notify_listeners() {
-        for (OtpMboxListener listener: listeners) {
-            listener.onMessageReceived();
-        }
-    }
-
     /*
      * called by OtpNode to deliver message to this mailbox.
      *
@@ -849,15 +721,8 @@ public class OtpMbox {
         case AbstractConnection.unlinkIdAckTag:
             handle_link_operation(m);
             break;
-        case OtpMsg.monitorTag:
-            handle_monitor_operation(m);
-            break;
-        case OtpMsg.demonitorTag:
-            handle_monitor_operation(m);
-            break;
         default:
             queue.put(m);
-            notify_listeners();
             break;
         }
     }
@@ -878,7 +743,6 @@ public class OtpMbox {
                         links.removeLink(self, remote);
                         queue.put(new OtpMsg(OtpMsg.exitTag, remote, self,
                                              new OtpErlangAtom("noconnection")));
-                        notify_listeners();
                     }
                 }
             }
@@ -909,31 +773,8 @@ public class OtpMbox {
         case OtpMsg.exitTag:
             if (links.removeActiveLink(self, m.getSenderPid())) {
                 queue.put(m);
-                notify_listeners();
             }
             break;
-        }
-    }
-
-    private synchronized void handle_monitor_operation(final OtpMsg m) {
-        final OtpErlangPid remote = m.getSenderPid();
-        final String node = remote.node();
-        final boolean is_local = node.equals(home.node());
-        final OtpCookedConnection conn = is_local ? null : home.getConnection(node);
-
-        switch (m.type()) {
-            case OtpMsg.monitorTag:
-                monitoredBy.put(m.ref, m.from);
-                if (conn != null) {
-                    conn.add_monitor(self, m.from, m.ref);
-                }
-                break;
-            case OtpMsg.demonitorTag:
-                monitoredBy.remove(m.ref);
-                if (conn != null) {
-                    conn.remove_monitor(m.ref);
-                }
-                break;
         }
     }
 
@@ -956,45 +797,6 @@ public class OtpMbox {
                     exit(1, remote, reason);
                 }
             }
-        }
-    }
-
-    public synchronized void subscribe(OtpMboxListener listener) {
-        listeners.add(listener);
-    }
-
-    public synchronized void unsubscribe(OtpMboxListener listener) {
-        listeners.remove(listener);
-    }
-
-    public synchronized void clearMonitors(OtpErlangObject reason) {
-        /*
-         * We iterate through the monitoredBy until there are no more monitors left.
-         * This is done to account for the case when new monitors are added while
-         * we are iterating.
-         */
-        while (!monitoredBy.isEmpty()) {
-            for (var entry : monitoredBy.entrySet()) {
-                final OtpErlangRef ref = entry.getKey();
-                final OtpErlangPid pid = entry.getValue();
-                sendMonitorExit(ref, pid, reason);
-                monitoredBy.remove(ref);
-            }
-        }
-    }
-
-    private void sendMonitorExit(final OtpErlangRef ref, final OtpErlangPid pid, final OtpErlangObject reason) {
-        final String node = pid.node();
-        final boolean is_local = node.equals(home.node());
-        final OtpCookedConnection conn = is_local ? null : home.getConnection(node);
-
-        if (!is_local) {
-            if (conn != null) {
-                conn.monitorExit(self, pid, ref, reason);
-            }
-        } else {
-            final OtpMsg monitorExitMsg = new OtpMsg(OtpMsg.monitorExitTag, self, pid, ref, reason);
-            home.deliver(monitorExitMsg);
         }
     }
 }

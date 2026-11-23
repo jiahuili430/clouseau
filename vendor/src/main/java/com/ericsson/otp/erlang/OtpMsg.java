@@ -60,9 +60,6 @@ public class OtpMsg {
     public static final int regSendTag = 6;
     /* public static final int groupLeaderTag = 7; */
     public static final int exit2Tag = 8;
-    public static final int monitorTag = 19;
-    public static final int demonitorTag = 20;
-    public static final int monitorExitTag = 21;
 
     protected int tag; // what type of message is this (send, link, exit etc)
     protected OtpInputStream paybuf;
@@ -70,8 +67,6 @@ public class OtpMsg {
 
     protected OtpErlangPid from;
     protected OtpErlangPid to;
-    protected OtpErlangRef ref;
-    protected String fromName;
     protected String toName;
     protected long unlink_id;
 
@@ -84,7 +79,6 @@ public class OtpMsg {
         this.paybuf = paybuf;
         payload = null;
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // send has receiver pid but no sender information
@@ -96,7 +90,6 @@ public class OtpMsg {
         paybuf = null;
         this.payload = payload;
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // send_reg has sender pid and receiver name
@@ -109,7 +102,6 @@ public class OtpMsg {
         this.paybuf = paybuf;
         payload = null;
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // send_reg has sender pid and receiver name
@@ -122,7 +114,6 @@ public class OtpMsg {
         paybuf = null;
         this.payload = payload;
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // exit (etc) has from, to, reason
@@ -135,7 +126,6 @@ public class OtpMsg {
         paybuf = null;
         payload = reason;
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // special case when reason is an atom (i.e. most of the time)
@@ -147,7 +137,6 @@ public class OtpMsg {
         paybuf = null;
         payload = new OtpErlangAtom(reason);
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // other message types (link and old unlink)
@@ -157,7 +146,6 @@ public class OtpMsg {
         this.from = from;
         this.to = to;
         this.unlink_id = 0;
-        this.ref = null;
     }
 
     // unlink
@@ -168,56 +156,7 @@ public class OtpMsg {
         this.from = from;
         this.to = to;
         this.unlink_id = unlink_id;
-        this.ref = null;
     }
-
-    // monitor/demonitor
-    OtpMsg(final int tag, final OtpErlangPid from, final OtpErlangPid to,
-           final OtpErlangRef ref) {
-        this.tag = tag;
-        this.from = from;
-        this.to = to;
-        this.ref = ref;
-        this.unlink_id = 0;
-        paybuf = null;
-        payload = null;
-    }
-
-    OtpMsg(final int tag, final OtpErlangPid from, final String toName,
-           final OtpErlangRef ref) {
-        this.tag = tag;
-        this.from = from;
-        this.to = null;
-        this.toName = toName;
-        this.ref = ref;
-        this.unlink_id = 0;
-        paybuf = null;
-        payload = null;
-    }
-
-    // monitorExit
-    OtpMsg(final int tag, final OtpErlangPid from, final OtpErlangPid to,
-           final OtpErlangRef ref, final OtpErlangObject reason) {
-        this.tag = tag;
-        this.from = from;
-        this.to = to;
-        this.ref = ref;
-        this.unlink_id = 0;
-        paybuf = null;
-        payload = reason;
-    }
-
-    // monitorExit
-    OtpMsg(final int tag, final OtpErlangAtom from, final OtpErlangPid to,
-           final OtpErlangRef ref, final OtpErlangObject reason) {
-     this.tag = tag;
-     this.fromName = from.atomValue();
-     this.to = to;
-     this.ref = ref;
-     this.unlink_id = 0;
-     paybuf = null;
-     payload = reason;
- }
 
     private int drop_tt_tag(final int tag) {
         switch (tag) {
@@ -243,10 +182,6 @@ public class OtpMsg {
      */
     long getUnlinkId() {
         return this.unlink_id;
-    }
-
-    public OtpErlangRef getRef() {
-        return this.ref;
     }
 
     /**
